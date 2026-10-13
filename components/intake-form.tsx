@@ -8,7 +8,7 @@ import './workspace.css';
 
 type Attempt = { key: string; fingerprint: string };
 type PhotoAttachment = { id: string; token: string };
-type Draft = { data: IntakeData; step: number; savedAt: string; attempt?: Attempt; pending?: boolean; photo?: PhotoAttachment; candidateIds?: string[] };
+type Draft = { data: IntakeData; step: number; savedAt: string; reviewReached?: boolean; attempt?: Attempt; pending?: boolean; photo?: PhotoAttachment; candidateIds?: string[] };
 type ApiResult = { reference?: string; error?: string; fields?: Record<string, string> };
 const draftKey = (kind: IntakeKind) => `jiahe.intake.${kind}.v1`;
 const attemptKey = (kind: IntakeKind) => `jiahe.attempt.${kind}.v1`;
@@ -117,6 +117,7 @@ export default function IntakeForm({ kind }: { kind: IntakeKind }) {
   const sectionDescriptions = kind === 'jobseeker' ? ['填寫個人資料及聯絡方法。', '選擇服務種類，填寫技能及工作經驗。', '填寫工作地區、開始日期及期望薪金。'] : ['填寫聯絡方法、服務地區及家庭人數。', '選擇服務種類、工作職責及溝通語言。', '填寫開始日期、工作時間及薪金預算。'];
   const [data, setData] = useState<IntakeData>({});
   const [step, setStep] = useState(0);
+  const [reviewReached, setReviewReached] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [pendingDraft, setPendingDraft] = useState<Draft | null>(null);
   const [saveDraft, setSaveDraft] = useState(false);
@@ -149,10 +150,10 @@ export default function IntakeForm({ kind }: { kind: IntakeKind }) {
   useEffect(() => {
     if (!saveDraft || reference) return;
     try {
-      localStorage.setItem(draftKey(kind), JSON.stringify({ data, step, savedAt: new Date().toISOString(), ...(attemptRef.current ? { attempt: attemptRef.current } : {}), pending: pendingSubmission, ...(photo ? { photo } : {}), candidateIds }));
+      localStorage.setItem(draftKey(kind), JSON.stringify({ data, step, reviewReached, savedAt: new Date().toISOString(), ...(attemptRef.current ? { attempt: attemptRef.current } : {}), pending: pendingSubmission, ...(photo ? { photo } : {}), candidateIds }));
       setDraftNote('草稿已儲存在此瀏覽器');
     } catch { setDraftNote('此瀏覽器無法儲存草稿，請完成後提交。'); }
-  }, [data, step, kind, saveDraft, reference, pendingSubmission, photo, candidateIds]);
+  }, [data, step, reviewReached, kind, saveDraft, reference, pendingSubmission, photo, candidateIds]);
 
   useEffect(() => {
     if (kind !== 'employer' || candidateIds.length===0) { setCandidates([]);setCandidateLoading(false);setCandidateError('');return; }
@@ -181,6 +182,7 @@ export default function IntakeForm({ kind }: { kind: IntakeKind }) {
   };
 
   const goTo = (nextStep: number, fieldName?: string) => {
+    if (nextStep === formSections.length) setReviewReached(true);
     setStep(nextStep);
     setSubmitError('');
     requestAnimationFrame(() => {
@@ -203,7 +205,7 @@ export default function IntakeForm({ kind }: { kind: IntakeKind }) {
     event.preventDefault();
     if (busyRef.current || pendingDraft?.pending || photoUploading) return;
     if (step < formSections.length) {
-      if (validate(formSections[step].fields)) goTo(step + 1);
+      if (validate(formSections[step].fields)) goTo(reviewReached ? formSections.length : step + 1);
       return;
     }
     // An uncertain attempt must reach the receipt lookup with its original key.
@@ -264,7 +266,7 @@ export default function IntakeForm({ kind }: { kind: IntakeKind }) {
     <div className="workspace-breadcrumb"><a href="/">首頁</a><ChevronRight size={14} aria-hidden="true"/><span>{kindLabel(kind)}登記</span></div>
     <div className="intake-intro"><p className="workspace-eyebrow">{kind === 'jobseeker' ? '求職資料' : '服務需求資料'}</p><h1>{kindLabel(kind)}登記</h1><p>{kind === 'jobseeker' ? '填寫聯絡資料、工作經驗及求職要求。' : '填寫聯絡資料、服務需要及工作安排。'}</p></div>
     <noscript><style>{'.intake-panel .form-actions{display:none}'}</style><p className="form-message">請開啟瀏覽器的 JavaScript 以完成登記及提交資料。</p></noscript>
-    {pendingDraft && <div className="draft-banner"><div><strong>{pendingDraft.pending ? '有一份登記的提交結果尚未確認' : '此瀏覽器有一份未完成的登記'}</strong><p>{pendingDraft.pending ? '請繼續草稿，重試以確認上次的提交結果。' : '可繼續填寫，或開始一份新登記。'}</p></div><div className="draft-actions"><button type="button" className="work-button secondary" disabled={Boolean(pendingDraft.pending)} onClick={() => { try { localStorage.removeItem(draftKey(kind)); } catch {} setData(queryPrefill(kind, window.location.search));clearPhoto();setCandidateIds(kind==='employer'?queryCandidateIds(window.location.search):[]); setStep(0); setErrors({}); setPendingDraft(null); }}>重新開始</button><button type="button" className="work-button primary" onClick={() => { setData(pendingDraft.data); setPhoto(kind==='jobseeker'?pendingDraft.photo||null:null);replacePhotoPreview('');setCandidateIds(kind==='employer'?pendingDraft.candidateIds||[]:[]); setStep(pendingDraft.pending ? formSections.length : Math.min(Math.max(pendingDraft.step, 0), formSections.length)); attemptRef.current = pendingDraft.attempt || null; setPendingSubmission(Boolean(pendingDraft.pending)); setSaveDraft(true); setPendingDraft(null); }}>繼續草稿<ArrowRight size={16} aria-hidden="true"/></button></div></div>}
+    {pendingDraft && <div className="draft-banner"><div><strong>{pendingDraft.pending ? '有一份登記的提交結果尚未確認' : '此瀏覽器有一份未完成的登記'}</strong><p>{pendingDraft.pending ? '請繼續草稿，重試以確認上次的提交結果。' : '可繼續填寫，或開始一份新登記。'}</p></div><div className="draft-actions"><button type="button" className="work-button secondary" disabled={Boolean(pendingDraft.pending)} onClick={() => { try { localStorage.removeItem(draftKey(kind)); } catch {} setData(queryPrefill(kind, window.location.search));clearPhoto();setCandidateIds(kind==='employer'?queryCandidateIds(window.location.search):[]); setStep(0); setReviewReached(false); setErrors({}); setPendingDraft(null); }}>重新開始</button><button type="button" className="work-button primary" onClick={() => { setData(pendingDraft.data); setPhoto(kind==='jobseeker'?pendingDraft.photo||null:null);replacePhotoPreview('');setCandidateIds(kind==='employer'?pendingDraft.candidateIds||[]:[]); setStep(pendingDraft.pending ? formSections.length : Math.min(Math.max(pendingDraft.step, 0), formSections.length)); setReviewReached(pendingDraft.reviewReached === true || pendingDraft.step >= formSections.length || Boolean(pendingDraft.pending)); attemptRef.current = pendingDraft.attempt || null; setPendingSubmission(Boolean(pendingDraft.pending)); setSaveDraft(true); setPendingDraft(null); }}>繼續草稿<ArrowRight size={16} aria-hidden="true"/></button></div></div>}
     <div className="intake-layout">
       <aside className="intake-side" aria-label="填寫進度"><ol className="form-progress">
         {progressLabels.map((title, index) => <li key={title} className={step === index ? 'current' : step > index ? 'finished' : ''} aria-current={step === index ? 'step' : undefined}>
@@ -281,7 +283,7 @@ export default function IntakeForm({ kind }: { kind: IntakeKind }) {
           <label className={`consent-label ${errors.consent ? 'consent-error' : ''}`}><input id="field-consent" type="checkbox" checked={data.consent === true} disabled={locked} onChange={event => change('consent', event.target.checked)} aria-invalid={Boolean(errors.consent)}/><span>我同意家合僱傭使用以上資料聯絡及安排配對，並向相關僱主或求職者提供配對所需資料。</span></label>{errors.consent && <p className="field-error">{errors.consent}</p>}
         </>}
         <div className="honeypot" aria-hidden="true"><label htmlFor="intake-website">網站</label><input ref={websiteRef} id="intake-website" name="website" autoComplete="off" tabIndex={-1}/></div>
-        <div className="form-actions"><button type="button" className="work-button secondary" disabled={step === 0 || locked} onClick={() => goTo(step - 1)}><ArrowLeft size={16} aria-hidden="true"/>上一步</button><button type="submit" className="work-button primary" disabled={submitting || photoUploading || Boolean(pendingDraft?.pending)}>{submitting ? '正在提交…' : step === formSections.length ? pendingSubmission ? '重試確認' : submitError ? '重試提交' : '確認並提交' : '下一步'}{!submitting && <ArrowRight size={16} aria-hidden="true"/>}</button></div>
+        <div className="form-actions"><button type="button" className="work-button secondary" disabled={step === 0 || locked} onClick={() => goTo(step - 1)}><ArrowLeft size={16} aria-hidden="true"/>上一步</button><button type="submit" className="work-button primary" disabled={submitting || photoUploading || Boolean(pendingDraft?.pending)}>{submitting ? '正在提交…' : step === formSections.length ? pendingSubmission ? '重試確認' : submitError ? '重試提交' : '確認並提交' : reviewReached ? '返回確認資料' : '下一步'}{!submitting && <ArrowRight size={16} aria-hidden="true"/>}</button></div>
         <div className="draft-control"><label><input type="checkbox" checked={saveDraft} disabled={submitting || Boolean(pendingDraft?.pending)} onChange={event => { setSaveDraft(event.target.checked); if (!event.target.checked) { try { localStorage.removeItem(draftKey(kind)); } catch {} setDraftNote(''); } }}/><span>在此瀏覽器儲存草稿</span></label><p aria-live="polite">{draftNote || '共用裝置請勿勾選。提交成功後會移除草稿及待提交照片資料。'}</p></div>
       </form>
     </div>

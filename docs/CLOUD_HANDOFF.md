@@ -34,10 +34,12 @@ Local synthetic data and uploaded objects were removed. Temporary Mac server on 
 ## Start cloud work
 
 1. Clone or reuse only HireHire. Read `AGENTS.md` and this file. Verify the actual Git remote, current commit, branch, clean/dirty state and cloud cwd/OS before claiming takeover. Preserve any existing cloud changes.
-2. Use a dedicated development branch and the current remote main, whose history includes the released baseline above. Install locked dependencies once if absent. The unit tests need `pdftotext`; install the normal platform package if available, or report that precise gap.
+2. Use a dedicated development branch and the current remote main. The reviewed public root snapshot is `8612c9d2a004cd24ba886d6e3d373e71ac6bcaba`; its sanitized, single-commit history does not contain the original Air release hashes above. Keep both provenances. Install locked dependencies once if absent. The unit tests need `pdftotext`; install the normal platform package if available, or report that precise gap.
 3. Run the appropriate baseline checks serially. Read the reference site's real search/profile/compare/registration flows and our current code before selecting the next bounded improvements.
 4. Continue the owner's existing request: make the platform useful and more complete. Prioritize observed friction in candidate selection and completing registrations, then the corresponding admin/PDF workflow. Choose concrete gaps supported by inspection; do not introduce payment, messaging, invented profiles, alternative auth or an architecture rewrite.
 5. Implement and verify a coherent set of changes, commit/push and prepare a reviewable PR when appropriate. For release, use the existing Sites project and official Sites workflow; verify current live version/ownership first. Keep the public audience and protected behavior in `AGENTS.md`.
 6. Return the actual cloud execution cwd/OS, repository and full commit, what changed, checks and limitations, PR/release state and exact follow-up items. No local Mac builds or tests should be requested for cloud-capable work.
 
 HireHire is the owner-selected development source. Sites also maintains its own publishing source repository through its source helper. Do not assume the GitHub development commit and the Sites publishing commit are identical; sync the exact reviewed application content and keep both provenances when releasing. Secrets stay in Sites/session memory, never in GitHub or handoff messages.
+
+Cloud takeover and the first local-only improvement are recorded in [CLOUD_UI_REVIEW.md](CLOUD_UI_REVIEW.md). The existing Sites identity and logical storage bindings have been restored in `.openai/hosting.json`; this is source configuration, not a new deployment or new storage provisioning.
