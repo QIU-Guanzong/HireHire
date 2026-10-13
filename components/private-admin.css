@@ -9,7 +9,7 @@
 .private-editor p { color: var(--muted); font-size: 14px; line-height: 1.8; }
 .private-fields { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 20px; }
 .private-fields > label, .private-toolbar > label { display: block; color: var(--ink); font-size: 14px; line-height: 1.7; }
-.private-fields input:not([type=checkbox]),.private-fields textarea,.private-fields select,.private-toolbar input,.private-toolbar select { display: block; width: 100%; min-width: 0; border: 1px solid #afbeb2; border-radius: 2px; padding: 10px 12px; min-height: 44px; margin-top: 7px; color: var(--ink); background: white; font: inherit; font-size: 15px; }
+.private-fields input:not([type=checkbox]):not([type=radio]),.private-fields textarea,.private-fields select,.private-toolbar input,.private-toolbar select { display: block; width: 100%; min-width: 0; border: 1px solid #afbeb2; border-radius: 2px; padding: 10px 12px; min-height: 44px; margin-top: 7px; color: var(--ink); background: white; font: inherit; font-size: 15px; }
 .private-fields textarea { resize: vertical; }
 .private-wide { grid-column: 1/-1; }
 .private-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; justify-content: flex-end; margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--line); }
@@ -43,5 +43,5 @@
 .private-pdf-options { min-width: 0; }
 .private-pdf-options > fieldset { border: 0; padding: 0; margin: 0; }
 .private-pdf-options > fieldset > legend { font-size: 15px; font-weight: 500; }
-.private-pdf-options .private-inline-check { margin-right: 18px; }
+.private-pdf-options .private-inline-check { display: inline-flex; align-items: center; min-height: 44px; margin: 0 18px 0 0; white-space: nowrap; }
 @media(max-width:760px){ .private-admin-nav{gap:6px 18px;font-size:13px}.private-editor{padding:20px}.private-fields{grid-template-columns:1fr}.private-toolbar>label{min-width:100%}.private-actions .work-button{flex:1}.private-comparison dl>div{grid-template-columns:100px minmax(0,1fr);gap:10px}.private-editor h2{font-size:20px} }

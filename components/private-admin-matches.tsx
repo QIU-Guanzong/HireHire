@@ -106,14 +106,17 @@ function MatchesManager() {
   };
   const exportPdf = async () => {
     if (!exportEmployer || exportBusyRef.current || exportCountLoading || !exportTotal) return;
+    const requested = { employerId: exportEmployer.id, mode: pdfMode, batch, batchSize, asOf: exportAsOf };
     exportBusyRef.current = true; setExporting(true); setExportError('');
     try {
-      const params = new URLSearchParams({ employerId: exportEmployer.id, mode: pdfMode, batch: String(batch), batchSize: String(batchSize), ...(exportAsOf?{asOf:exportAsOf}:{}) });
+      const params = new URLSearchParams({ employerId: requested.employerId, mode: requested.mode, batch: String(requested.batch), batchSize: String(requested.batchSize), ...(requested.asOf?{asOf:requested.asOf}:{}) });
       const response = await fetch(`/api/admin/matches/export?${params}`, { cache: 'no-store' });
       if (!response.ok) { const value = await response.json().catch(() => ({})) as { error?: string }; throw new Error(value.error || '未能產生PDF，請重試。'); }
       if (!response.headers.get('Content-Type')?.includes('application/pdf')) throw new Error('PDF尚未完成，請重試。');
       const url = URL.createObjectURL(await response.blob()); downloadUrlsRef.current.add(url);
-      const anchor = document.createElement('a'); anchor.href = url; anchor.download = `jiahe-matches-${pdfMode}-${batch}.pdf`; document.body.appendChild(anchor); anchor.click(); anchor.remove();
+      const disposition = response.headers.get('Content-Disposition');
+      const fileName = disposition?.match(/filename="?([^";]+)"?/)?.[1]?.trim();
+      const anchor = document.createElement('a'); anchor.href = url; anchor.download = fileName || `jiahe-matches-${requested.mode}-${requested.employerId}-batch-${requested.batch}.pdf`; document.body.appendChild(anchor); anchor.click(); anchor.remove();
       window.setTimeout(() => { URL.revokeObjectURL(url); downloadUrlsRef.current.delete(url); }, 1000);
     } catch (caught) { setExportError(caught instanceof Error ? caught.message : '下載未完成，請重試。'); }
     finally { exportBusyRef.current = false; setExporting(false); }

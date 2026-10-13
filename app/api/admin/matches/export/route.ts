@@ -15,7 +15,7 @@ export async function GET(request: Request) {
     if (result.total > batchSize && !explicitBatch) throw new ApiError(413, `共有${result.total}位配對人選，請選擇批次下載，每批最多${batchSize}位。`);
     if (!result.matches.length) throw new ApiError(404, '此僱主尚未有配對人選。');
     const records = [employer]; for (const match of result.matches) records.push(await getRecord(match.jobseekerId));
-    const response = pdfResponse(await createRecordsPdf(records, mode, request, result.matches), `jiahe-matches-${employer.reference}${explicitBatch ? `-batch-${batch}-of-${batches}` : ''}.pdf`);
+    const response = pdfResponse(await createRecordsPdf(records, mode, request, result.matches), `jiahe-matches-${mode}-${employer.reference}-batch-${batch}-of-${batches}.pdf`);
     response.headers.set('X-Export-Records', String(records.length)); response.headers.set('X-Export-Total', String(result.total));
     response.headers.set('X-Export-Batch', String(batch)); response.headers.set('X-Export-Batch-Size', String(batchSize));
     response.headers.set('X-Export-Batches', String(batches)); response.headers.set('X-Export-As-Of', asOf);

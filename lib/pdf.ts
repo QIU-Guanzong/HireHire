@@ -1,10 +1,11 @@
 import { env } from 'cloudflare:workers';
 import { PDFDocument, rgb, type PDFFont, type PDFPage } from 'pdf-lib';
 import fontkit from '@pdf-lib/fontkit';
-import { isFieldVisible, kindLabel, parseWorkExperiences, sections, type IntakeRecord } from './fields';
+import { isFieldVisible, kindLabel, parseWorkExperiences, sections, type Field, type IntakeRecord } from './fields';
 import { formatWorkExperience, type CandidatePublic, type MatchRecord } from './platform-types';
 import { ApiError, db } from './server';
 import { imageDimensions } from './platform-server';
+import { createClientTextRedactor } from './pdf-contact-redaction';
 
 type PdfGroup = { title: string; rows: [string, string][] };
 type PdfEntry = { reference: string; title: string; dateLabel: string; photoId?: string; groups: PdfGroup[] };
@@ -33,10 +34,21 @@ function dateLabel(value: string) {
 const valueText = (value: unknown) => Array.isArray(value) ? value.join('、') : typeof value === 'boolean' ? value ? '是' : '否' : String(value || '');
 
 export async function createRecordsPdf(records: IntakeRecord[], mode: 'full' | 'client', request: Request, matches: MatchRecord[] = []) {
+  const redact = mode === 'client' ? createClientTextRedactor(records.map(record => ({ phone: record.data.phone, email: record.data.email }))) : (value: string) => value;
+  const fieldText = (field: Field, record: IntakeRecord) => {
+    if (field.type === 'experience') {
+      const original = parseWorkExperiences(record.data[field.name]);
+      if (mode === 'full') return formatWorkExperience(original);
+      const rows = original.map(row => ({ ...row, country: redact(row.country || ''), household: redact(row.household || ''), duties: redact(row.duties || ''), leavingReason: redact(row.leavingReason || '') }));
+      return formatWorkExperience(rows);
+    }
+    const text = valueText(record.data[field.name]);
+    return !field.type || field.type === 'text' || field.type === 'textarea' ? redact(text) : text;
+  };
   const entries: PdfEntry[] = records.map((record, index) => {
-    const groups: PdfGroup[] = sections[record.kind].map(group => ({ title: group.title, rows: group.fields.filter(field => isFieldVisible(field, record.data) && !(mode === 'client' && ['phone', 'email', 'publicProfileConsent'].includes(field.name))).map(field => [field.label, field.type === 'experience' ? formatWorkExperience(parseWorkExperiences(record.data[field.name])) : valueText(record.data[field.name])]) }));
+    const groups: PdfGroup[] = sections[record.kind].map(group => ({ title: group.title, rows: group.fields.filter(field => isFieldVisible(field, record.data) && !(mode === 'client' && ['phone', 'email', 'publicProfileConsent'].includes(field.name))).map(field => [field.label, fieldText(field, record)]) }));
     if (index === 0 && matches.length) groups.push({ title: '配對安排', rows: matches.flatMap(match => [
-      ['人選', `${match.jobseekerName}（${match.jobseekerReference}）`], ['配對階段', match.stage], ['面試時間', match.interviewAt || '尚未安排'], ...(mode === 'full' ? [['配對備註', match.notes || '未填寫']] : []),
+      ['人選', `${redact(match.jobseekerName)}（${match.jobseekerReference}）`], ['配對階段', match.stage], ['面試時間', match.interviewAt || '尚未安排'], ...(mode === 'full' ? [['配對備註', match.notes || '未填寫']] : []),
     ] as [string, string][]) });
     if (mode === 'full') groups.push({ title: '登記與跟進', rows: [
       ['資料使用同意', record.data.consent === true ? '已同意資料用於聯絡及服務配對' : '未同意'], ['跟進狀態', record.status], ['下次跟進', record.nextFollowUp || '未安排'], ['內部備註', record.notes], ['提交時間', `${dateLabel(record.createdAt)}（香港時間）\n${record.createdAt}`], ['更新時間', `${dateLabel(record.updatedAt)}（香港時間）\n${record.updatedAt}`],

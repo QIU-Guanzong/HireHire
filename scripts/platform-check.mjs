@@ -41,7 +41,7 @@ async function moduleUrl(file) {
   for (const name of ['pdf-lib', '@pdf-lib/fontkit']) source = source.replaceAll(`from '${name}'`, `from '${pathToFileURL(require.resolve(name)).href}'`);
   return `data:text/javascript;base64,${Buffer.from(source).toString('base64')}`;
 }
-for (const name of ['platform-types', 'fields', 'candidate-search', 'server', 'platform-server', 'pdf']) urls[name] = await moduleUrl(`lib/${name}.ts`);
+for (const name of ['platform-types', 'fields', 'candidate-search', 'server', 'platform-server', 'pdf-contact-redaction', 'pdf']) urls[name] = await moduleUrl(`lib/${name}.ts`);
 const fields = await import(urls.fields), server = await import(urls.server), platform = await import(urls['platform-server']), pdfUtils = await import(urls.pdf);
 const searchHelpers = await import(urls['candidate-search']);
 const routes = {};
@@ -190,11 +190,82 @@ async function checkPublicSearch() {
     for (const fixture of fixtures) sqlite.prepare('DELETE FROM intake_records WHERE id = ?').run(fixture.id);
   }
 }
-const pdfDefaultOnly = process.argv.includes('--pdf-default-only'), publicSearchOnly = process.argv.includes('--public-search-only');
+async function checkClientRedaction() {
+  const before=checks;
+  const {createClientTextRedactor}=await import(urls['pdf-contact-redaction']);
+  const redact=createClientTextRedactor([{phone:'+852 6123 4567',email:'Known@Example.Test'},{phone:'00000004',email:'josé@例子.香港'}]);
+  for(const [input,output] of [
+    ['Known@Example.Test','[電郵已隱去]'],['known @\nexample . test','[電郵已隱去]'],['其他other.person+work@example.test','其他[電郵已隱去]'],
+    ['foo＠example．test','[電郵已隱去]'],['f\u200boo@example.test','[電郵已隱去]'],['mail：josé@例子.香港，煮食','mail：[電郵已隱去]，煮食'],
+    ['電話61234567','電話[電話已隱去]'],['(6123) 4567','[電話已隱去]'],['+852 6123-4567','[電話已隱去]'],['００８５２ ６１２３ ４５６７','[電話已隱去]'],
+    ['Call +1 (650) 555-0198 ext 123','Call [電話已隱去]'],['Tel 020 7946 0958','Tel [電話已隱去]'],['手機13800138000','手機[電話已隱去]'],
+    ['WhatsApp +44 20 7946 0958','WhatsApp [電話已隱去]'],['電話٦١٢٣٤٥٦٧','電話[電話已隱去]'],['電話६१२३४५६७','電話[電話已隱去]'],['電話۶۱۲۳۴۵۶۷','電話[電話已隱去]'],
+    ['6123\n4567','[電話已隱去]'],['+852\n6123 4567','[電話已隱去]'],['電話00000004','電話[電話已隱去]'],
+    ['電話６１\u200b２３－４５６７','電話[電話已隱去]'],['a@example.test\nb@example.test','[電郵已隱去]\n[電郵已隱去]'],
+    ['電話61234567 2026-11-02','電話[電話已隱去] 2026-11-02'],['61234567 23456789','[電話已隱去] [電話已隱去]'],['電話61234567，電郵known@example.test；煮食','電話[電話已隱去]，電郵[電郵已隱去]；煮食'],
+  ]) expect(redact(input)===output,`Client contact format redacted: ${input}`);
+  for(const text of ['2026-11-02','02/11/2026','20261102','2019–2024 年','HK$ 23456789','salary 23456789','薪金：23456789','證書編號：23456789','Order no. 23456789','ABC61234567XYZ','12345678901234567890','120000.50','612345.67','800000.00','24歲、兩位成人、9:00–18:00','JH-E-20261013-ABC12345','工作 ﬃ、全形Ａ、emoji🙂','證書 ABC-61234567','2001\n2002']) expect(redact(text)===text,`Client useful text retained: ${text}`);
+  const marker=`redaction-${randomUUID()}`,time=new Date().toISOString(),fixtures=[],emails=[],labels=[];
+  const corpus='電話61234567；+1 (650) 555-0198 ext 123；手機13800138000；電郵third@example.test；全形foo＠example．test。\n保留 2026-11-02；2019–2024；HK$ 23456789；證書編號：23456789；9:00–18:00。';
+  await mkdir('work/client-pdf-redaction',{recursive:true});
+  try{
+    for(const kind of ['employer','jobseeker']){
+      const data={...(kind==='employer'?employer:seeker),phone:kind==='employer'?'00000004':'+852 6123 4567',email:kind+'-private@example.test',services:['家傭','陪月','長者照顧','家居清潔','育兒照顧']};
+      if(kind==='employer')Object.assign(data,{dueDate:'2026-11-03',serviceDays:'30',homeSize:'750'});
+      for(const field of fields.allFields(kind))if(!field.type||field.type==='text'||field.type==='textarea'){
+        const label=`TXT_${kind}_${field.name}`,email=`${kind}-${field.name.toLowerCase()}@example.test`;data[field.name]=`${label} ${email}`;labels.push(label);emails.push(email);
+      }
+      if(kind==='jobseeker'){
+        const experience={country:'香港 TXT_country ex-country@example.test',from:'2020-01',to:'2025-12',household:'TXT_household ex-household@example.test',duties:'TXT_duties ex-duties@example.test 電話00000004',leavingReason:'TXT_leaving ex-leaving@example.test'};
+        data.workExperienceJson=JSON.stringify([experience]);labels.push('TXT_country','TXT_household','TXT_duties','TXT_leaving');emails.push('ex-country@example.test','ex-household@example.test','ex-duties@example.test','ex-leaving@example.test');
+      }
+      data[kind==='employer'?'otherRequirements':'introduction']+=' '+corpus;
+      const validated=server.validateData(kind,data),id=randomUUID(),hash=await server.hash(id),reference=kind==='employer'?'SYNTHETIC-REDACT-E':'SYNTHETIC-REDACT-J';
+      sqlite.prepare('INSERT INTO intake_records (id,reference,kind,data_json,search_text,status,notes,created_at,updated_at,idempotency_hash,request_hash) VALUES (?,?,?,?,?,?,?,?,?,?,?)').run(id,reference,kind,JSON.stringify(validated),marker,'新登記','PRIVATE_REDACTION_NOTE',time,time,hash,hash);fixtures.push({id,reference,data:validated});
+    }
+    const matchId=randomUUID();sqlite.prepare('INSERT INTO record_matches (id,employer_id,jobseeker_id,stage,notes,interview_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)').run(matchId,fixtures[0].id,fixtures[1].id,'安排面試','PRIVATE_MATCH_REDACTION_NOTE','2026-11-05T10:00',time,time);
+    const snapshot=JSON.stringify(sqlite.prepare('SELECT * FROM intake_records WHERE id IN (?,?) ORDER BY id').all(...fixtures.map(f=>f.id)));
+    const common=['00000004','61234567','third@example.test','foo＠example．test',...emails];
+    for(const [name,route,path,mode]of [
+      ['records-client','export',`/api/admin/export?ids=${fixtures.map(f=>f.id).join(',')}&mode=client`,'client'],
+      ['records-full','export',`/api/admin/export?ids=${fixtures.map(f=>f.id).join(',')}&mode=full`,'full'],
+      ['matches-default','matchExport',`/api/admin/matches/export?employerId=${fixtures[0].id}`,'client'],
+      ['matches-empty','matchExport',`/api/admin/matches/export?employerId=${fixtures[0].id}&mode=`,'client'],
+      ['matches-full','matchExport',`/api/admin/matches/export?employerId=${fixtures[0].id}&mode=full&batch=1&batchSize=5`,'full'],
+    ]){
+      const response=await call(route,'GET',undefined,undefined,true,path);await expectStatus(response,200,`${name} renders actual PDF`);
+      expect(response.headers.get('Cache-Control')==='no-store'&&response.headers.get('Content-Type')==='application/pdf',`${name} cannot be cached as another mode`);
+      expect(response.headers.get('Content-Disposition').includes(`-${mode}-`),`${name} filename identifies actual mode`);
+      if(route==='matchExport')expect(response.headers.get('Content-Disposition').includes(fixtures[0].reference)&&response.headers.get('Content-Disposition').includes('batch-1-of-1'),`${name} filename identifies employer and batch`);
+      const file=`work/client-pdf-redaction/${name}.pdf`;await writeFile(file,Buffer.from(await response.arrayBuffer()));const text=(await run('pdftotext',[file,'-'])).stdout,compact=text.replace(/\s/g,'');
+      for(const label of labels)expect(compact.includes(label),`${name} retains each free-text location: ${label}`);
+      if(mode==='client'){
+        for(const contact of common)expect(!compact.includes(contact.replace(/\s/g,'')),`${name} excludes embedded contact: ${contact}`);
+        expect(compact.includes('[電郵已隱去]')&&compact.includes('[電話已隱去]'),`${name} marks filtered contact spans`);
+        expect(!text.includes('PRIVATE_REDACTION_NOTE')&&!text.includes('PRIVATE_MATCH_REDACTION_NOTE'),`${name} excludes internal notes`);
+      }else{for(const email of emails)expect(compact.includes(email),`${name} full preserves original free-text email`);expect(text.includes('PRIVATE_REDACTION_NOTE')&&text.includes('00000004'),`${name} full preserves private data`);}
+      for(const preserved of ['2026-11-02','2019–2024','HK$23456789','23456789','2020-01','2025-12','19000','18000'])expect(compact.includes(preserved),`${name} retains dates/pay/work values: ${preserved}`);
+      if(route==='matchExport')expect(text.includes('安排面試')&&text.includes('2026-11-05T10:00'),`${name} retains match stage and interview`);
+    }
+    expect(snapshot===JSON.stringify(sqlite.prepare('SELECT * FROM intake_records WHERE id IN (?,?) ORDER BY id').all(...fixtures.map(f=>f.id))),'Redaction never mutates original stored data or notes');
+    const browserRecords=await Promise.all(fixtures.map(fixture=>server.getRecord(fixture.id)));
+    const browserMatches=await(await call('matches','GET',undefined,undefined,true,`/api/admin/matches?employerId=${fixtures[0].id}`)).json();
+    await writeFile('work/client-pdf-redaction/browser-fixtures.json',JSON.stringify({syntheticOnly:true,records:browserRecords,matches:browserMatches.matches,asOf:browserMatches.asOf},null,2));
+    for(const route of ['export','matchExport'])for(const mode of ['client','full','invalid']){
+      const path=route==='export'?`/api/admin/export?ids=${fixtures[0].id}&mode=${mode}`:`/api/admin/matches/export?employerId=${fixtures[0].id}&mode=${mode}`;
+      const anonymous=await call(route,'GET',undefined,undefined,false,path);await expectStatus(anonymous,401,`${route} ${mode} denies anonymous access`);expect(anonymous.headers.get('Cache-Control')==='no-store',`${route} denied mode is not cached`);
+      const denied=await routes[route].GET(request(path,{headers:{'oai-authenticated-user-id':'unapproved','oai-authenticated-user-email':'unapproved@example.test'}}));await expectStatus(denied,403,`${route} ${mode} denies unapproved account`);
+      if(mode==='invalid'){const invalidMode=await call(route,'GET',undefined,undefined,true,path);await expectStatus(invalidMode,400,`${route} invalid mode rejected`);expect(invalidMode.headers.get('Cache-Control')==='no-store'&&invalidMode.headers.get('Content-Type').includes('application/json'),`${route} mode error is uncached JSON, not a full PDF`);}
+    }
+    return checks-before;
+  }finally{for(const fixture of fixtures)sqlite.prepare('DELETE FROM intake_records WHERE id=?').run(fixture.id);}
+}
+const pdfDefaultOnly = process.argv.includes('--pdf-default-only'), publicSearchOnly = process.argv.includes('--public-search-only'), clientRedactionOnly = process.argv.includes('--client-redaction-only');
 try {
-  const publicSearchChecks = pdfDefaultOnly ? 0 : await checkPublicSearch();
-  const pdfDefaultChecks = publicSearchOnly ? 0 : await checkPdfDefaults();
-  if (!pdfDefaultOnly && !publicSearchOnly) {
+  const publicSearchChecks = pdfDefaultOnly || clientRedactionOnly ? 0 : await checkPublicSearch();
+  const pdfDefaultChecks = publicSearchOnly || clientRedactionOnly ? 0 : await checkPdfDefaults();
+  const clientRedactionChecks = pdfDefaultOnly || publicSearchOnly ? 0 : await checkClientRedaction();
+  if (!pdfDefaultOnly && !publicSearchOnly && !clientRedactionOnly) {
   expect((await (await call('health')).json()).version === '1.1.0', 'Health verifies migrated schema and release version.');
   invalid(()=>platform.optionalDate('2026-11-01T15:00:99Z','面試',true));
   expect(server.validateData('jobseeker', { ...seeker, publicProfileConsent: undefined }).publicProfileConsent === false, 'Public consent defaults false.');
@@ -402,8 +473,8 @@ try {
   expect(Buffer.byteLength(JSON.stringify(longSettings))>65536,'Valid 20-item Chinese fee table exceeds former settings byte cap.');
   await expectStatus(await call('settings','PATCH',longSettings,undefined,true),200,'Valid long Chinese company settings accepted');
   }
-  const report={passed:true,checks,pdfDefaultChecks,publicSearchChecks,focusedOnly:pdfDefaultOnly||publicSearchOnly,isolatedDatabase:true,fixtureObjects:objects.size,pdfs:publicSearchOnly?[]:pdfDefaultOnly?['default-selected.pdf','empty-mode.pdf','explicit-client.pdf','default-filtered.pdf','explicit-full.pdf']:['candidate.pdf','match-client.pdf','match-full.pdf'],testedAt:new Date().toISOString()};
-  await writeFile(publicSearchOnly?'work/navigation-search/focused-report.json':pdfDefaultOnly?'work/admin-pdf-default/focused-report.json':'work/platform-check/report.json',JSON.stringify(report,null,2)); console.log(JSON.stringify(report));
+  const report={passed:true,checks,pdfDefaultChecks,publicSearchChecks,clientRedactionChecks,focusedOnly:pdfDefaultOnly||publicSearchOnly||clientRedactionOnly,isolatedDatabase:true,fixtureObjects:objects.size,pdfs:clientRedactionOnly?['records-client.pdf','records-full.pdf','matches-default.pdf','matches-empty.pdf','matches-full.pdf']:publicSearchOnly?[]:pdfDefaultOnly?['default-selected.pdf','empty-mode.pdf','explicit-client.pdf','default-filtered.pdf','explicit-full.pdf']:['candidate.pdf','match-client.pdf','match-full.pdf'],testedAt:new Date().toISOString()};
+  await writeFile(clientRedactionOnly?'work/client-pdf-redaction/focused-report.json':publicSearchOnly?'work/navigation-search/focused-report.json':pdfDefaultOnly?'work/admin-pdf-default/focused-report.json':'work/platform-check/report.json',JSON.stringify(report,null,2)); console.log(JSON.stringify(report));
 } finally {
   objects.clear(); sqlite.close(); delete globalThis.__jiahePlatformEnv;
   // This task owns only its exact temporary text files; PDFs are QA evidence.
