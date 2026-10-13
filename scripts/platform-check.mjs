@@ -123,6 +123,11 @@ async function checkPublicSearch() {
   const before = checks, token = randomUUID().slice(0, 8).replace(/\d/g, digit => String.fromCharCode(97 + Number(digit))), marker = `search-${token}`, fixtures = [];
   await mkdir('work/navigation-search', { recursive: true });
   try {
+    for (const age of ['38.0', '038.00']) {
+      const data = server.validateData('jobseeker', { ...seeker, age });
+      const profile = platform.draftProfile({ id: randomUUID(), reference: 'SYNTHETIC-AGE', kind: 'jobseeker', data, status: '新登記', notes: '', nextFollowUp: '', createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z' });
+      expect(profile.age === '38' && data.age === age, `Accepted intake age ${age} produces a canonical public draft without changing private data`);
+    }
     for (let index = 0; index < 17; index++) {
       const id = randomUUID(), publicationId = randomUUID(), number = String(index + 1).padStart(2, '0');
       const age = ['24', '62', ''][index % 3], education = ['大學或以上', '小學', '其他'][index % 3], skill = ['兒童照顧', '煮食', '寵物照顧'][index % 3];
@@ -172,7 +177,7 @@ async function checkPublicSearch() {
         expect(people.every((person, index) => person.id === expected[index].publicationId), 'Single selected sort orders every page consistently');
       }
     }
-    for (const parameters of [{ education: '不存在' }, { skill: '不存在' }, { ageRange: '0-999' }, { sort: 'view-count' }]) await expectStatus(await call('candidates', 'GET', undefined, undefined, false, `/api/candidates?${new URLSearchParams(parameters)}`), 400, 'Unsupported public filter/sort rejected');
+    for (const parameters of [{ education: '不存在' }, { skill: '不存在' }, { ageRange: '0-999' }, { sort: 'view-count' }, { sort: 'constructor' }, { sort: 'toString' }, { sort: '__proto__' }]) await expectStatus(await call('candidates', 'GET', undefined, undefined, false, `/api/candidates?${new URLSearchParams(parameters)}`), 400, `Unsupported public filter/sort rejected: ${new URLSearchParams(parameters)}`);
     const parsed = searchHelpers.candidateFiltersFromSearch('?service=家傭&district=沙田&employmentType=兼職&education=大學或以上&ageRange=18-29&skill=兒童照顧&sort=age-asc&page=2');
     expect(parsed.education === '大學或以上' && parsed.ageRange === '18-29' && parsed.skill === '兒童照顧' && parsed.page === '2', 'Browser URL restoration retains new filters and page');
     const href = searchHelpers.candidateSearchHref(parsed);
@@ -194,6 +199,17 @@ async function checkClientRedaction() {
   const before=checks;
   const {createClientTextRedactor}=await import(urls['pdf-contact-redaction']);
   const redact=createClientTextRedactor([{phone:'+852 6123 4567',email:'Known@Example.Test'},{phone:'00000004',email:'josé@例子.香港'}]);
+  const contactEdges=[
+    ['EDGE_COMMA','Alice,61234567','Alice,[電話已隱去]'],
+    ['EDGE_PAIR','61234567,23456789','[電話已隱去],[電話已隱去]'],
+    ['EDGE_ZERO','Alice,00000004','Alice,[電話已隱去]'],
+    ...['9:00','09:30','23:59','24:00'].map((clock,index)=>[`EDGE_CLOCK_${index}`,`電話61234567 ${clock}上班`,`電話[電話已隱去] ${clock}上班`]),
+    ['EDGE_VALUE','電話61234567 HK$ 23,456,789；電話61234567 612345.67；電話61234567 2000.50；電話61234567 薪金：800000.00','電話[電話已隱去] HK$ 23,456,789；電話[電話已隱去] 612345.67；電話[電話已隱去] 2000.50；電話[電話已隱去] 薪金：800000.00'],
+    ['EDGE_REF','電話61234567 2026-11-02；電話61234567 證書 ABC-23456789','電話[電話已隱去] 2026-11-02；電話[電話已隱去] 證書 ABC-23456789'],
+    ['EDGE_DOTTED_UNKNOWN','0141 555 01.23；Tel 0141 555 01.23','[電話已隱去]；Tel [電話已隱去]'],
+    ['EDGE_DOTTED_INTL','電話+852 61234 56.78；電話+44 0207946 09.58；電話+1 6505550 19.80；電話+852 612345 678.90','電話[電話已隱去]；電話[電話已隱去]；電話[電話已隱去]；電話[電話已隱去]'],
+  ];
+  for(const [label,input,output] of contactEdges) expect(redact(input)===output,`${label} removes the contact and preserves adjacent prose exactly`);
   for(const [input,output] of [
     ['Known@Example.Test','[電郵已隱去]'],['known @\nexample . test','[電郵已隱去]'],['其他other.person+work@example.test','其他[電郵已隱去]'],
     ['foo＠example．test','[電郵已隱去]'],['f\u200boo@example.test','[電郵已隱去]'],['mail：josé@例子.香港，煮食','mail：[電郵已隱去]，煮食'],
@@ -204,9 +220,9 @@ async function checkClientRedaction() {
     ['電話６１\u200b２３－４５６７','電話[電話已隱去]'],['a@example.test\nb@example.test','[電郵已隱去]\n[電郵已隱去]'],
     ['電話61234567 2026-11-02','電話[電話已隱去] 2026-11-02'],['61234567 23456789','[電話已隱去] [電話已隱去]'],['電話61234567，電郵known@example.test；煮食','電話[電話已隱去]，電郵[電郵已隱去]；煮食'],
   ]) expect(redact(input)===output,`Client contact format redacted: ${input}`);
-  for(const text of ['2026-11-02','02/11/2026','20261102','2019–2024 年','HK$ 23456789','salary 23456789','薪金：23456789','證書編號：23456789','Order no. 23456789','ABC61234567XYZ','12345678901234567890','120000.50','612345.67','800000.00','24歲、兩位成人、9:00–18:00','JH-E-20261013-ABC12345','工作 ﬃ、全形Ａ、emoji🙂','證書 ABC-61234567','2001\n2002']) expect(redact(text)===text,`Client useful text retained: ${text}`);
+  for(const text of ['2026-11-02','02/11/2026','20261102','2019–2024 年','HK$ 23456789','HK$ 23,456,789','23,456,789','salary 23456789','薪金：23456789','證書編號：23456789','Order no. 23456789','ABC61234567XYZ','12345678901234567890','120000.50','612345.67','800000.00','24歲、兩位成人、9:00–18:00','JH-E-20261013-ABC12345','工作 ﬃ、全形Ａ、emoji🙂','證書 ABC-61234567','2001\n2002']) expect(redact(text)===text,`Client useful text retained: ${text}`);
   const marker=`redaction-${randomUUID()}`,time=new Date().toISOString(),fixtures=[],emails=[],labels=[];
-  const corpus='電話61234567；+1 (650) 555-0198 ext 123；手機13800138000；電郵third@example.test；全形foo＠example．test。\n保留 2026-11-02；2019–2024；HK$ 23456789；證書編號：23456789；9:00–18:00。';
+  const corpus='電話61234567；+1 (650) 555-0198 ext 123；手機13800138000；電郵third@example.test；全形foo＠example．test。\n保留 2026-11-02；2019–2024；HK$ 23456789；證書編號：23456789；9:00–18:00。\n'+contactEdges.map(([label,input])=>`${label} ${input}`).join('\n');
   await mkdir('work/client-pdf-redaction',{recursive:true});
   try{
     for(const kind of ['employer','jobseeker']){
@@ -244,6 +260,7 @@ async function checkClientRedaction() {
         expect(compact.includes('[電郵已隱去]')&&compact.includes('[電話已隱去]'),`${name} marks filtered contact spans`);
         expect(!text.includes('PRIVATE_REDACTION_NOTE')&&!text.includes('PRIVATE_MATCH_REDACTION_NOTE'),`${name} excludes internal notes`);
       }else{for(const email of emails)expect(compact.includes(email),`${name} full preserves original free-text email`);expect(text.includes('PRIVATE_REDACTION_NOTE')&&text.includes('00000004'),`${name} full preserves private data`);}
+      for(const [label,input,output] of contactEdges) expect(compact.includes(`${label} ${mode==='client'?output:input}`.replace(/\s/g,'')),`${name} ${label} preserves the exact ${mode==='client'?'masked contact and adjacent prose':'original contact and adjacent prose'}`);
       for(const preserved of ['2026-11-02','2019–2024','HK$23456789','23456789','2020-01','2025-12','19000','18000'])expect(compact.includes(preserved),`${name} retains dates/pay/work values: ${preserved}`);
       if(route==='matchExport')expect(text.includes('安排面試')&&text.includes('2026-11-05T10:00'),`${name} retains match stage and interview`);
     }

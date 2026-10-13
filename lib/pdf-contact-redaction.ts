@@ -66,11 +66,22 @@ export function createClientTextRedactor(contacts: Contacts[]) {
     const unicodeEmail = /(?<![\p{L}\p{N}_.+%-])[A-Za-z0-9][\p{L}\p{N}\p{M}.!#$%&'*+/=?^_`{|}~-]*[ \t\r\n]*@[ \t\r\n]*(?:[\p{L}\p{N}\p{M}-]+[ \t\r\n]*\.[ \t\r\n]*)+[\p{L}\p{M}]{2,63}(?=$|[\s,;!?),，。；、？！）<>"'])/gu;
     for (const pattern of text.includes('@') ? [...knownEmailPatterns, asciiEmail, unicodeEmail] : []) for (const match of text.matchAll(pattern)) add(match.index, match.index + match[0].length, emailMarker);
     const classifyPhone = (match: RegExpMatchArray) => {
-      const leading = match[0].length - match[0].trimStart().length, start = match.index! + leading, whole = match[0].slice(leading), base = whole.replace(/[ \t]*(?:ext\.?|extension|x|分機|內線)[ \t]*[:.]?[ \t]*\d{1,6}$/i,''), number = base.replace(/\D/g,''), before = text.slice(Math.max(0,start-40),start), after = text.slice(start+whole.length,start+whole.length+12);
+      const leading = match[0].length - match[0].trimStart().length, start = match.index! + leading;
+      let whole = match[0].slice(leading);
+      // A clock following a contact is separate prose, even when a broad
+      // grouped-number scan reaches its hour before stopping at the colon.
+      const hour = /[ \t]+(\d{1,2})$/.exec(whole), minute = /^:([0-5]\d)(?!\d)/.exec(text.slice(start + whole.length));
+      if (hour && minute && (Number(hour[1]) < 24 || hour[1] === '24' && minute[1] === '00')) whole = whole.slice(0, hour.index);
+      const decimal = /[ \t]+\d+\.\d{1,2}$/.exec(whole);
+      // Only a complete known contact establishes where an adjacent bare
+      // decimal begins; otherwise it may be another dotted phone group.
+      const prefixNumber = decimal ? whole.slice(0, decimal.index).replace(/\D/g, '') : '';
+      if (decimal && (knownPhones.has(prefixNumber) || prefixNumber.startsWith('00') && knownPhones.has(prefixNumber.slice(2))) && !knownPhones.has(whole.replace(/\D/g, ''))) whole = whole.slice(0, decimal.index);
+      const base = whole.replace(/[ \t]*(?:ext\.?|extension|x|分機|內線)[ \t]*[:.]?[ \t]*\d{1,6}$/i,''), number = base.replace(/\D/g,''), before = text.slice(Math.max(0,start-40),start), after = text.slice(start+whole.length,start+whole.length+12);
       const labelled = /(?:電話|手機|手提|聯絡號碼|聯絡電話|分機|內線|tel(?:ephone)?\.?|phone|mobile|whatsapp|call)[ \t：:.-]*$/i.test(before);
       // Protect dates, currency, decimals and explicitly labelled reference IDs.
       // A nearby phone label takes precedence over ambiguous numeric prose.
-      if (!labelled && (dateOrYearRange(base) || /^\d+\.\d{1,2}$/.test(base.trim()) || /(?:HK\$|HKD|USD|\$|薪金|薪酬|薪資|預算|budget|salary|pay)[ \t：:]*$/i.test(before) || /(?:證書|證照|牌照|訂單|證件|參考)(?:編號|號碼)?[ \t：:#]*$|(?:certificate|order|reference|ref|licen[sc]e|id|code)(?:[ \t]+(?:no\.?|number))?[ \t:#]*$/i.test(before) || /(?:證書|證照|牌照|訂單|參考|certificate|order|reference|licen[sc]e|id).{0,20}[A-Za-z0-9]+[-_]$/i.test(before) || /[\d.,]$/.test(before) || /^[.,]\d/.test(after))) return;
+      if (!labelled && (dateOrYearRange(base) || /^\d+\.\d{1,2}$/.test(base.trim()) || /(?:HK\$|HKD|USD|\$|薪金|薪酬|薪資|預算|budget|salary|pay)[ \t：:]*$/i.test(before) || /(?:證書|證照|牌照|訂單|證件|參考)(?:編號|號碼)?[ \t：:#]*$|(?:certificate|order|reference|ref|licen[sc]e|id|code)(?:[ \t]+(?:no\.?|number))?[ \t:#]*$/i.test(before) || /(?:證書|證照|牌照|訂單|參考|certificate|order|reference|licen[sc]e|id).{0,20}[A-Za-z0-9]+[-_]$/i.test(before) || /[\d.]$/.test(before) || /^\.\d/.test(after))) return;
       const known = knownPhones.has(number) || number.startsWith('00') && knownPhones.has(number.slice(2));
       const international = /^\s*\+/.test(base) && number.length >= 8 && number.length <= 15 || /^\s*00/.test(base) && number.length >= 10 && number.length <= 17;
       const local = number.length === 8 && /^[2-9]/.test(number);

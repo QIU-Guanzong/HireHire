@@ -43,3 +43,5 @@ Local synthetic data and uploaded objects were removed. Temporary Mac server on 
 HireHire is the owner-selected development source. Sites also maintains its own publishing source repository through its source helper. Do not assume the GitHub development commit and the Sites publishing commit are identical; sync the exact reviewed application content and keep both provenances when releasing. Secrets stay in Sites/session memory, never in GitHub or handoff messages.
 
 Cloud takeover and the first local-only improvement are recorded in [CLOUD_UI_REVIEW.md](CLOUD_UI_REVIEW.md). The existing Sites identity and logical storage bindings have been restored in `.openai/hosting.json`; this is source configuration, not a new deployment or new storage provisioning.
+
+The cumulative local release-candidate audit, minimal confirmed fixes, isolated verification, full source recovery and release/rollback prerequisites are recorded in [CLOUD_RELEASE_CANDIDATE_REVIEW.md](CLOUD_RELEASE_CANDIDATE_REVIEW.md). It does not change the historical deployment status above.

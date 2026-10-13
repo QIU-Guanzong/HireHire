@@ -80,7 +80,7 @@ export function draftProfile(record: IntakeRecord): Profile {
   const summary = text('publicIntroduction');
   const displayName = text('publicName');
   // Private work history and certificates are never copied into a publication.
-  return validatePublicProfile({ displayName: displayName && !contactText(displayName) ? displayName : record.reference, services: array('services'), nationality: text('nationality'), candidateType: text('candidateType'), age: text('age'), education: text('education'), currentLocation: contactText(text('currentLocation')) ? '' : text('currentLocation'), languages: array('languages'), yearsExperience: text('yearsExperience'), skills: array('skills'), employmentType: text('employmentType'), workLocations: array('workLocations'), availableFrom: text('availableFrom'), expectedSalary: text('expectedSalary'), salaryUnit: text('salaryUnit'), salaryNegotiable: data.salaryNegotiable === true, summary: contactText(summary) ? '' : summary, qualifications: '', workExperiences: [] });
+  return validatePublicProfile({ displayName: displayName && !contactText(displayName) ? displayName : record.reference, services: array('services'), nationality: text('nationality'), candidateType: text('candidateType'), age: text('age') ? String(Number(text('age'))) : '', education: text('education'), currentLocation: contactText(text('currentLocation')) ? '' : text('currentLocation'), languages: array('languages'), yearsExperience: text('yearsExperience'), skills: array('skills'), employmentType: text('employmentType'), workLocations: array('workLocations'), availableFrom: text('availableFrom'), expectedSalary: text('expectedSalary'), salaryUnit: text('salaryUnit'), salaryNegotiable: data.salaryNegotiable === true, summary: contactText(summary) ? '' : summary, qualifications: '', workExperiences: [] });
 }
 export function publicationDto(row: PublicationRow): CandidatePublication {
   const stored = JSON.parse(row.profile_json) as Record<string, unknown>;
@@ -136,7 +136,7 @@ export function candidateQuery(url: URL) {
     'age-asc': "CASE WHEN coalesce(json_extract(p.profile_json, '$.age'), '') = '' THEN 1 ELSE 0 END, CAST(json_extract(p.profile_json, '$.age') AS INTEGER) ASC, p.id DESC",
     'age-desc': "CASE WHEN coalesce(json_extract(p.profile_json, '$.age'), '') = '' THEN 1 ELSE 0 END, CAST(json_extract(p.profile_json, '$.age') AS INTEGER) DESC, p.id DESC",
   };
-  if (!orders[sort]) throw new ApiError(400, '排序方式無效。');
+  if (!Object.hasOwn(orders, sort)) throw new ApiError(400, '排序方式無效。');
   const pageText = url.searchParams.get('page') || '1';
   if (!/^[1-9]\d{0,5}$/.test(pageText)) throw new ApiError(400, '頁碼無效。');
   return { where: ` WHERE ${clauses.join(' AND ')}`, bindings, order: orders[sort], page: Number(pageText) };
