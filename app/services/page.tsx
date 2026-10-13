@@ -1,0 +1,5 @@
+import type { Metadata } from 'next';
+import { ArrowRight } from 'lucide-react';
+import { serviceContent } from '@/lib/service-content';
+export const metadata:Metadata={title:'服務類別'};
+export default function Services(){return <main id="main-content" className="site-width information-page"><header className="information-heading"><p className="page-kicker">家合僱傭服務</p><h1>服務類別</h1><p>按家庭需要，選擇服務與工作安排。</p></header><nav className="section-tabs" aria-label="服務類別">{serviceContent.map(s=><a href={'#'+s.id} key={s.id}>{s.name}</a>)}</nav><div className="service-detail-list">{serviceContent.map((s,i)=><section id={s.id} key={s.id} className="service-detail"><div className="service-detail-heading"><span className="service-number">0{i+1}</span><h2>{s.name}</h2><p>{s.lead}</p><a className="button primary" href={'/employer?service='+encodeURIComponent(s.name)}>登記服務需要 <ArrowRight size={15}/></a><a className="text-link" href={'/candidates?service='+encodeURIComponent(s.name)}>查看人選</a></div><div><h3>可填寫的工作需要</h3><ul>{s.tasks.map(t=><li key={t}>{t}</li>)}</ul><h3>登記前準備</h3><ul>{s.prepare.map(t=><li key={t}>{t}</li>)}</ul></div></section>)}</div></main>;}
