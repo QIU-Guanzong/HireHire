@@ -7,7 +7,7 @@ export async function GET(request: Request) {
   return handleApi(async () => {
     requireAdmin(request);
     const url = new URL(request.url);
-    const mode = url.searchParams.get('mode') || 'full';
+    const mode = url.searchParams.get('mode') || 'client';
     if (mode !== 'full' && mode !== 'client') throw new ApiError(400, 'PDF類型無效。');
     const ids = url.searchParams.get('ids');
     const { batch, batchSize, explicitBatch } = exportPaging(url);

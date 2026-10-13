@@ -74,7 +74,54 @@ function portraitFixture() {
   const header = Buffer.alloc(13); header.writeUInt32BE(width); header.writeUInt32BE(height, 4); header[8] = 8; header[9] = 2;
   return Buffer.concat([Buffer.from([137,80,78,71,13,10,26,10]), chunk('IHDR', header), chunk('IDAT', deflateSync(raw)), chunk('IEND', Buffer.alloc(0))]);
 }
+async function checkPdfDefaults() {
+  const before = checks, marker = `pdf-default-${randomUUID()}`, time = new Date().toISOString();
+  const fixtures = [
+    { id: randomUUID(), kind: 'employer', data: { ...employer, fullName: '合成客戶甲', phone: '00000000', email: 'private-one@example.test' }, notes: 'SYNTHETIC_PRIVATE_NOTE_ONE' },
+    { id: randomUUID(), kind: 'jobseeker', data: { ...seeker, fullName: '合成求職乙', phone: '00000001', email: 'private-two@example.test' }, notes: 'SYNTHETIC_PRIVATE_NOTE_TWO' },
+  ];
+  await mkdir('work/admin-pdf-default', { recursive: true });
+  try {
+    for (const [index, fixture] of fixtures.entries()) {
+      fixture.reference = `SYNTHETIC-PDF-${index + 1}`;
+      const hash = await server.hash(`${marker}-${fixture.id}`);
+      sqlite.prepare('INSERT INTO intake_records (id,reference,kind,data_json,search_text,status,notes,created_at,updated_at,idempotency_hash,request_hash) VALUES (?,?,?,?,?,?,?,?,?,?,?)').run(fixture.id, fixture.reference, fixture.kind, JSON.stringify(server.validateData(fixture.kind, fixture.data)), marker, '新登記', fixture.notes, time, time, hash, hash);
+    }
+    const ids = fixtures.map(fixture => fixture.id).join(',');
+    for (const [name, path, chosen, mode] of [
+      ['default-selected', `/api/admin/export?ids=${fixtures[0].id}`, [fixtures[0]], 'client'],
+      ['empty-mode', `/api/admin/export?ids=${ids}&mode=`, fixtures, 'client'],
+      ['explicit-client', `/api/admin/export?ids=${ids}&mode=client`, fixtures, 'client'],
+      ['default-filtered', `/api/admin/export?scope=all&q=${marker}&kind=employer`, [fixtures[0]], 'client'],
+      ['explicit-full', `/api/admin/export?ids=${ids}&mode=full`, fixtures, 'full'],
+    ]) {
+      const response = await call('export', 'GET', undefined, undefined, true, path);
+      await expectStatus(response, 200, `${name} PDF generated`);
+      const bytes = Buffer.from(await response.arrayBuffer());
+      expect(bytes.subarray(0, 5).toString() === '%PDF-', `${name} is a PDF binary`);
+      const file = `work/admin-pdf-default/${name}.pdf`;
+      await writeFile(file, bytes);
+      const extracted = (await run('pdftotext', [file, '-'])).stdout;
+      expect(chosen.every(fixture => extracted.includes(fixture.data.fullName) && extracted.includes(fixture.reference)) && fixtures.filter(fixture => !chosen.includes(fixture)).every(fixture => !extracted.includes(fixture.data.fullName)) && extracted.includes('家傭'), `${name} retains the exact chosen people and service data`);
+      const privateText = [...fixtures.flatMap(fixture => [fixture.data.phone, fixture.data.email, fixture.notes]), '資料使用同意', '登記與跟進', '同意公開求職簡介及照片'];
+      expect(mode === 'client' ? privateText.every(text => !extracted.includes(text)) : privateText.every(text => extracted.includes(text)), `${name} respects client/full private-field separation`);
+      expect(response.headers.get('Content-Disposition').includes(`jiahe-${mode}-`), `${name} filename identifies the actual PDF version`);
+    }
+    await expectStatus(await call('export', 'GET', undefined, undefined, true, `/api/admin/export?ids=${ids}&mode=invalid`), 400, 'Unknown PDF mode rejected');
+    for (const mode of ['', '&mode=full']) {
+      const path = `/api/admin/export?ids=${ids}${mode}`;
+      await expectStatus(await call('export', 'GET', undefined, undefined, false, path), 401, 'Default/full export still denies anonymous requests');
+      await expectStatus(await routes.export.GET(request(path, { headers: { 'oai-authenticated-user-id': 'unapproved-user', 'oai-authenticated-user-email': 'unapproved@example.test' } })), 403, 'Default/full export still denies an unapproved account');
+    }
+    return checks - before;
+  } finally {
+    for (const fixture of fixtures) sqlite.prepare('DELETE FROM intake_records WHERE id = ?').run(fixture.id);
+  }
+}
+const pdfDefaultOnly = process.argv.includes('--pdf-default-only');
 try {
+  const pdfDefaultChecks = await checkPdfDefaults();
+  if (!pdfDefaultOnly) {
   expect((await (await call('health')).json()).version === '1.1.0', 'Health verifies migrated schema and release version.');
   invalid(()=>platform.optionalDate('2026-11-01T15:00:99Z','面試',true));
   expect(server.validateData('jobseeker', { ...seeker, publicProfileConsent: undefined }).publicProfileConsent === false, 'Public consent defaults false.');
@@ -281,8 +328,9 @@ try {
   const currentSetting=await setting.json(),longSettings={...currentSetting,fees:Array.from({length:20},()=>({service:'項'.repeat(80),amount:'議'.repeat(80),unit:'次'.repeat(80),notes:'說'.repeat(1000)})),expectedUpdatedAt:currentSetting.updatedAt};
   expect(Buffer.byteLength(JSON.stringify(longSettings))>65536,'Valid 20-item Chinese fee table exceeds former settings byte cap.');
   await expectStatus(await call('settings','PATCH',longSettings,undefined,true),200,'Valid long Chinese company settings accepted');
-  const report={passed:true,checks,isolatedDatabase:true,fixtureObjects:objects.size,pdfs:['candidate.pdf','match-client.pdf','match-full.pdf'],testedAt:new Date().toISOString()};
-  await writeFile('work/platform-check/report.json',JSON.stringify(report,null,2)); console.log(JSON.stringify(report));
+  }
+  const report={passed:true,checks,pdfDefaultChecks,focusedOnly:pdfDefaultOnly,isolatedDatabase:true,fixtureObjects:objects.size,pdfs:pdfDefaultOnly?['default-selected.pdf','empty-mode.pdf','explicit-client.pdf','default-filtered.pdf','explicit-full.pdf']:['candidate.pdf','match-client.pdf','match-full.pdf'],testedAt:new Date().toISOString()};
+  await writeFile(pdfDefaultOnly?'work/admin-pdf-default/focused-report.json':'work/platform-check/report.json',JSON.stringify(report,null,2)); console.log(JSON.stringify(report));
 } finally {
   objects.clear(); sqlite.close(); delete globalThis.__jiahePlatformEnv;
   // This task owns only its exact temporary text files; PDFs are QA evidence.
