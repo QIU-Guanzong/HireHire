@@ -1,10 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
-import { ArrowDownToLine, ArrowLeft, ArrowRight, Check, ChevronRight, FileText, Search, ShieldCheck, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, ChevronRight, FileText, Search, ShieldCheck, X } from 'lucide-react';
 import { allFields, isFieldVisible, kindLabel, sections, statuses, type IntakeData, type IntakeKind, type IntakeRecord } from '@/lib/fields';
 import { IntakeDataFields, intakeFieldValue, validateIntakeFields } from './intake-form';
 import { AdminNavigation } from './private-admin-shell';
+import { usePrivatePdfPreview } from './private-pdf-preview';
 import './workspace.css';
 
 type Session = { authenticated: boolean; authorized: boolean; configured: boolean; email: string | null };
@@ -35,7 +36,6 @@ export default function AdminWorkspace() {
   const [refresh, setRefresh] = useState(0);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [exportMode, setExportMode] = useState<'full' | 'client'>('client');
-  const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState('');
   const [exportBatch, setExportBatch] = useState(1);
   const [exportBatchSize,setExportBatchSize] = useState(20);
@@ -58,7 +58,7 @@ export default function AdminWorkspace() {
   const listLoadingRef = useRef(false);
   const detailAbortRef = useRef<AbortController | null>(null);
   const loadedDrawerIdRef = useRef('');
-  const exportBusyRef = useRef(false);
+  const selectedLabelsRef = useRef(new Map<string, string>());
   const saveBusyRef = useRef(false);
   const listAsOfRef = useRef('');
   const requestedListScopeRef = useRef<RecordListScope>({ q: '', kind: '', status: '', page: 1 });
@@ -66,6 +66,12 @@ export default function AdminWorkspace() {
   const drawerOpen = drawer !== null;
   const listPending = loading || !result || result.scope !== recordListScopeKey(requestedListScopeRef.current);
   const listReady = !listPending && !error;
+  const pdfPreview = usePrivatePdfPreview(JSON.stringify([
+    session?.authorized, query, search, kind, status, page, refresh, result?.asOf,
+    listPending, error, [...selected], exportMode, exportBatch, exportBatchSize,
+    drawer?.id, drawer?.updatedAt, detailLoading, detailReadError, saving,
+  ]));
+  const exporting = pdfPreview.busy;
 
   const loadSession = useCallback(async () => {
     setSessionLoading(true); setSessionError('');
@@ -96,6 +102,8 @@ export default function AdminWorkspace() {
   }, [session?.authorized, search, kind, status, page, refresh]);
 
   const records = result?.records ?? [];
+  for (const record of records) if (selected.has(record.id)) selectedLabelsRef.current.set(record.id, `${displayValue(record.data.fullName)} · ${record.reference}`);
+  for (const id of selectedLabelsRef.current.keys()) if (!selected.has(id)) selectedLabelsRef.current.delete(id);
   const allPageSelected = records.length > 0 && records.every(record => selected.has(record.id));
   const somePageSelected = records.some(record => selected.has(record.id));
   useEffect(() => { if (pageCheckboxRef.current) pageCheckboxRef.current.indeterminate = somePageSelected && !allPageSelected; }, [somePageSelected, allPageSelected]);
@@ -126,6 +134,7 @@ export default function AdminWorkspace() {
     document.body.style.overflow = 'hidden';
     drawerCloseRef.current?.focus();
     const handleKey = (event: KeyboardEvent) => {
+      if (document.querySelector('dialog.private-pdf-preview[open]')) return;
       if (event.key === 'Escape') { event.preventDefault(); closeDrawer(); }
       if (event.key !== 'Tab') return;
       const controls = drawerRef.current?.querySelectorAll<HTMLElement>('button:not([disabled]),a[href],input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex="0"]');
@@ -188,39 +197,42 @@ export default function AdminWorkspace() {
     finally { saveBusyRef.current = false; setSaving(false); }
   };
 
-  const downloadPdf = async (scope: 'selected' | 'all', singleId?: string) => {
-    if (exportBusyRef.current) return;
+  const previewPdf = async (scope: 'selected' | 'all', trigger: HTMLElement, singleId?: string) => {
+    if (pdfPreview.active) return;
     if (singleId) {
       if (drawer?.id !== singleId || loadedDrawerIdRef.current !== singleId || detailLoading || detailReadError) {
-        setExportError('請先重新讀取這份登記，再下載PDF。');
+        setExportError('請先重新讀取這份登記，再預覽PDF。');
         return;
       }
     } else if (!listReady || listLoadingRef.current || !result || result.scope !== recordListScopeKey(requestedListScopeRef.current)) {
-      setExportError('請等候搜尋結果更新，再下載PDF。');
+      setExportError('請等候搜尋結果更新，再預覽PDF。');
       return;
     } else if (scope === 'selected' ? selected.size === 0 : result.total === 0) {
-      setExportError('請先選擇可下載的登記資料。');
+      setExportError('請先選擇可預覽的登記資料。');
       return;
     }
-    exportBusyRef.current = true; setExporting(true); setExportError('');
+    setExportError('');
     const params = new URLSearchParams({ mode: exportMode });
-    if (singleId) params.set('ids', singleId);
-    else if (scope === 'selected') params.set('ids', Array.from(selected).join(','));
-    else { params.set('scope', 'all'); params.set('q', search); params.set('kind', kind); params.set('status', status); if (result?.asOf) params.set('asOf', result.asOf); params.set('batchSize', String(exportBatchSize)); params.set('batch', String(exportBatch)); }
-    try {
-      const response = await fetch(`/api/admin/export?${params}`, { cache: 'no-store' });
-      if (!response.ok) throw new Error(await responseError(response, '未能下載PDF，請重試。'));
-      const blob = await response.blob();
-      if (!blob.type.includes('pdf')) throw new Error('未能取得PDF檔案，請重試。');
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a'); link.href = url;
-      const disposition = response.headers.get('Content-Disposition');
-      const fileName = disposition?.match(/filename="?([^";]+)"?/)?.[1];
-      link.download = fileName || `家合僱傭-${exportMode === 'client' ? '客戶配對版' : '完整資料'}-${new Date().toISOString().slice(0, 10)}.pdf`;
-      document.body.appendChild(link); link.click(); link.remove();
-      window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
-    } catch (caught) { setExportError(caught instanceof Error ? caught.message : '未能下載PDF。'); }
-    finally { exportBusyRef.current = false; setExporting(false); }
+    let targets: string[], scopeLabel: string;
+    if (singleId && drawer) {
+      params.set('ids', singleId);
+      targets = [`${displayValue(drawer.data.fullName)} · ${drawer.reference}`];
+      scopeLabel = '這份登記 · 已儲存的資料';
+    } else if (scope === 'selected') {
+      params.set('ids', Array.from(selected).join(','));
+      targets = [...selected].map(id => selectedLabelsRef.current.get(id) || id);
+      scopeLabel = `已選 ${selected.size} 份登記`;
+    } else {
+      params.set('scope', 'all'); params.set('q', search); params.set('kind', kind); params.set('status', status);
+      if (result?.asOf) params.set('asOf', result.asOf);
+      params.set('batchSize', String(exportBatchSize)); params.set('batch', String(exportBatch));
+      targets = [kind ? kindLabel(kind) : '全部登記類別', status || '全部跟進狀態', search ? `搜尋：${search}` : '全部搜尋結果'];
+      scopeLabel = `第 ${exportBatch} 批 · ${(exportBatch - 1) * exportBatchSize + 1}–${Math.min(exportBatch * exportBatchSize, result?.total || 0)}／${result?.total || 0} 份登記`;
+    }
+    await pdfPreview.open({
+      url: `/api/admin/export?${params}`, mode: exportMode, targets, scopeLabel,
+      fallbackFilename: `jiahe-${exportMode}-${new Date().toISOString().slice(0, 10)}${scope === 'all' ? `-batch-${exportBatch}` : '-selected'}.pdf`,
+    }, trigger);
   };
 
   const changeQuery = (next: string) => { requestedListScopeRef.current.q = next; setQuery(next); };
@@ -264,8 +276,8 @@ export default function AdminWorkspace() {
           {exportBatches > 1 && <label className="export-batch"><span>全部篩選結果分批下載</span><select aria-label="下載批次" value={exportBatch} disabled={!listReady || exporting} onChange={event => setExportBatch(Number(event.target.value))}>{Array.from({ length: exportBatches }, (_, index) => <option value={index + 1} key={index}>第 {index + 1} 批：{index * exportBatchSize + 1}–{Math.min((index + 1) * exportBatchSize, result?.total ?? 0)}／{result?.total} 份</option>)}</select></label>}
         </div>
         <div className="export-buttons">
-          <button className="work-button secondary" disabled={exporting || !listReady || selected.size === 0} onClick={() => void downloadPdf('selected')}><ArrowDownToLine size={16} aria-hidden="true"/>下載已選（{selected.size}）</button>
-          <button className="work-button primary" disabled={exporting || !listReady || !result?.total} onClick={() => void downloadPdf('all')}><ArrowDownToLine size={16} aria-hidden="true"/>{exporting ? '正在製作PDF…' : exportBatches > 1 ? '下載此批資料' : '下載全部篩選結果'}</button>
+          <button className="work-button secondary" disabled={exporting || !listReady || selected.size === 0} onClick={event => void previewPdf('selected', event.currentTarget)}><FileText size={16} aria-hidden="true"/>預覽已選（{selected.size}）</button>
+          <button className="work-button primary" disabled={exporting || !listReady || !result?.total} onClick={event => void previewPdf('all', event.currentTarget)}><FileText size={16} aria-hidden="true"/>{exporting ? '正在製作PDF…' : exportBatches > 1 ? '預覽此批資料' : '預覽全部篩選結果'}</button>
         </div>
       </section>
       {exportError && <p className="form-message error" role="alert">{exportError}</p>}
@@ -281,7 +293,8 @@ export default function AdminWorkspace() {
         <div className="followup-save"><span aria-live="polite">{saveNote&&<><Check size={15} aria-hidden="true"/>{saveNote}</>}{draftChanged&&!saveNote?'有未儲存的修改':''}</span><button type="submit" className="work-button primary" disabled={editingDisabled||conflictState==='detected'||!draftChanged}>{saving?'正在儲存…':conflictState==='review'?'確認覆蓋並儲存':'儲存更新'}</button></div>
       </form>
       <div className="drawer-details">{sections[drawer.kind].map(section => <section key={section.title}><h3>{section.title}</h3><dl>{section.fields.filter(field=>isFieldVisible(field,drawer.data)).map(field => <div key={field.name}><dt>{field.label}</dt><dd>{intakeFieldValue(field,drawer.data[field.name])}</dd></div>)}</dl></section>)}</div>
-      <div className="drawer-export"><p>目前PDF版本：<strong>{exportMode === 'client' ? '客戶配對版' : '完整資料'}</strong></p><button className="work-button secondary" disabled={exporting || detailLoading || detailReadError || loadedDrawerIdRef.current !== drawer.id} onClick={() => void downloadPdf('selected', drawer.id)}><ArrowDownToLine size={16} aria-hidden="true"/>{exporting ? '正在製作PDF…' : '下載這份登記'}</button>{exportError && <p className="field-error" role="alert">{exportError}</p>}</div>
+      <div className="drawer-export"><p>目前PDF版本：<strong>{exportMode === 'client' ? '客戶配對版' : '完整資料'}</strong></p><button className="work-button secondary" disabled={exporting || detailLoading || detailReadError || loadedDrawerIdRef.current !== drawer.id} onClick={event => void previewPdf('selected', event.currentTarget, drawer.id)}><FileText size={16} aria-hidden="true"/>{exporting ? '正在製作PDF…' : '預覽這份登記'}</button>{exportError && <p className="field-error" role="alert">{exportError}</p>}</div>
     </div></div></div>}
+    {pdfPreview.dialog}
   </main>;
 }
