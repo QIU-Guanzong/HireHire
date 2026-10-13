@@ -9,7 +9,10 @@ import './workspace.css';
 
 type Session = { authenticated: boolean; authorized: boolean; configured: boolean; email: string | null };
 type RecordsResult = { records: IntakeRecord[]; total: number; page: number; pageSize: number; asOf: string; counts: { all: number; jobseeker: number; employer: number; statuses: Record<string, number> } };
+type RecordListScope = { q: string; kind: IntakeKind | ''; status: string; page: number };
+type LoadedRecordsResult = RecordsResult & { scope: string };
 type RecordDraft = { status: string; notes: string; nextFollowUp: string; data: IntakeData };
+const recordListScopeKey = ({ q, kind, status, page }: RecordListScope) => JSON.stringify([q.trim(), kind, status, page]);
 const recordDraft = (record: IntakeRecord): RecordDraft => ({status:record.status,notes:record.notes,nextFollowUp:record.nextFollowUp||'',data:{...record.data}});
 const followUpParts = (value: string) => { if(!value.endsWith('Z')) return {day:value.slice(0,10),time:value.slice(11,16)}; const date=new Date(value); if(Number.isNaN(date.getTime()))return {day:'',time:''}; const parts=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Hong_Kong',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(date);const get=(type:string)=>parts.find(part=>part.type===type)?.value||'';return {day:`${get('year')}-${get('month')}-${get('day')}`,time:`${get('hour')}:${get('minute')}`}; };
 const followUpLabel = (value: string) => {const parts=followUpParts(value);return parts.day?`${parts.day}${parts.time?' '+parts.time:''}`:'未設定';};
@@ -26,7 +29,7 @@ export default function AdminWorkspace() {
   const [kind, setKind] = useState<IntakeKind | ''>('');
   const [status, setStatus] = useState('');
   const [page, setPage] = useState(1);
-  const [result, setResult] = useState<RecordsResult | null>(null);
+  const [result, setResult] = useState<LoadedRecordsResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [refresh, setRefresh] = useState(0);
@@ -54,10 +57,15 @@ export default function AdminWorkspace() {
   const restoreFocusRef = useRef(false);
   const listLoadingRef = useRef(false);
   const detailAbortRef = useRef<AbortController | null>(null);
+  const loadedDrawerIdRef = useRef('');
   const exportBusyRef = useRef(false);
   const saveBusyRef = useRef(false);
   const listAsOfRef = useRef('');
+  const requestedListScopeRef = useRef<RecordListScope>({ q: '', kind: '', status: '', page: 1 });
+  requestedListScopeRef.current = { q: query, kind, status, page };
   const drawerOpen = drawer !== null;
+  const listPending = loading || !result || result.scope !== recordListScopeKey(requestedListScopeRef.current);
+  const listReady = !listPending && !error;
 
   const loadSession = useCallback(async () => {
     setSessionLoading(true); setSessionError('');
@@ -70,19 +78,20 @@ export default function AdminWorkspace() {
   }, []);
 
   useEffect(() => { void loadSession(); }, [loadSession]);
-  useEffect(()=>{const initial=new URLSearchParams(window.location.search).get('q');if(initial&&initial.length<=160){setQuery(initial);setSearch(initial.trim());}},[]);
-  useEffect(() => { if (query.trim() === search) return; const timer = window.setTimeout(() => { listAsOfRef.current = ''; setSearch(query.trim()); setPage(1); setExportBatch(1); setSelected(new Set()); }, 300); return () => window.clearTimeout(timer); }, [query, search]);
+  useEffect(()=>{const initial=new URLSearchParams(window.location.search).get('q');if(initial&&initial.length<=160){requestedListScopeRef.current.q = initial;setQuery(initial);setSearch(initial.trim());}},[]);
+  useEffect(() => { if (query.trim() === search) return; const timer = window.setTimeout(() => { listAsOfRef.current = ''; requestedListScopeRef.current.page = 1; setSearch(query.trim()); setPage(1); setExportBatch(1); setSelected(new Set()); }, 300); return () => window.clearTimeout(timer); }, [query, search]);
   useEffect(() => {
     if (!session?.authorized) return;
     const controller = new AbortController();
     listLoadingRef.current = true;
     setLoading(true); setError('');
     const params = new URLSearchParams({ q: search, kind, status, page: String(page) });
+    const requestedScope = recordListScopeKey({ q: search, kind, status, page });
     if (listAsOfRef.current) params.set('asOf', listAsOfRef.current);
     fetch(`/api/admin/records?${params}`, { signal: controller.signal, cache: 'no-store' }).then(async response => {
       if (!response.ok) throw new Error(await responseError(response, '未能讀取登記資料，請重試。'));
       return response.json() as Promise<RecordsResult>;
-    }).then(next => { if (!controller.signal.aborted) { listAsOfRef.current = next.asOf; setResult(next); setExportBatch(current => Math.min(current, Math.max(1, Math.ceil(next.total / exportBatchSize)))); } }).catch(caught => { if (!controller.signal.aborted) setError(caught instanceof Error ? caught.message : '未能讀取資料。'); }).finally(() => { if (!controller.signal.aborted) { listLoadingRef.current = false; setLoading(false); } });
+    }).then(next => { if (!controller.signal.aborted) { listAsOfRef.current = next.asOf; setResult({ ...next, scope: requestedScope }); setExportBatch(current => Math.min(current, Math.max(1, Math.ceil(next.total / exportBatchSize)))); } }).catch(caught => { if (!controller.signal.aborted) setError(caught instanceof Error ? caught.message : '未能讀取資料。'); }).finally(() => { if (!controller.signal.aborted) { listLoadingRef.current = false; setLoading(false); } });
     return () => controller.abort();
   }, [session?.authorized, search, kind, status, page, refresh]);
 
@@ -94,6 +103,7 @@ export default function AdminWorkspace() {
   const closeDrawer = useCallback(() => {
     if (saveBusyRef.current) return;
     detailAbortRef.current?.abort();
+    loadedDrawerIdRef.current = '';
     restoreFocusRef.current = true;
     setDrawer(null); setDetailError(''); setDetailReadError(false); setSaveNote('');
   }, []);
@@ -136,12 +146,15 @@ export default function AdminWorkspace() {
     if (trigger.dataset.recordId === record.id && (triggerKind === 'name' || triggerKind === 'view')) triggerIdentityRef.current = { id: record.id, kind: triggerKind };
     detailAbortRef.current?.abort();
     const controller = new AbortController(); detailAbortRef.current = controller;
+    loadedDrawerIdRef.current = '';
     setDrawer(record); setRecordErrors({}); setDetailLoading(true); setDetailError(''); setDetailReadError(false); setSaveNote('');
     try {
       const response = await fetch(`/api/admin/records/${encodeURIComponent(record.id)}`, { signal: controller.signal, cache: 'no-store' });
       if (!response.ok) throw new Error(await responseError(response, '未能讀取完整資料。'));
       const body = await response.json() as IntakeRecord | { record: IntakeRecord };
-      if (!controller.signal.aborted) { setDrawer('record' in body ? body.record : body); setConflicts(current => current[record.id] === 'detected' ? { ...current, [record.id]: 'review' } : current); if (conflicts[record.id] === 'detected') requestAnimationFrame(() => drawerCloseRef.current?.focus()); }
+      const detailRecord = 'record' in body ? body.record : body;
+      if (detailRecord.id !== record.id) throw new Error('未能核對這份登記，請重新讀取。');
+      if (!controller.signal.aborted) { loadedDrawerIdRef.current = record.id; setDrawer(detailRecord); setConflicts(current => current[record.id] === 'detected' ? { ...current, [record.id]: 'review' } : current); if (conflicts[record.id] === 'detected') requestAnimationFrame(() => drawerCloseRef.current?.focus()); }
     } catch (caught) { if (!controller.signal.aborted) { setDetailError(caught instanceof Error ? caught.message : '未能讀取完整資料。'); setDetailReadError(true); } }
     finally { if (!controller.signal.aborted) setDetailLoading(false); }
   };
@@ -177,6 +190,18 @@ export default function AdminWorkspace() {
 
   const downloadPdf = async (scope: 'selected' | 'all', singleId?: string) => {
     if (exportBusyRef.current) return;
+    if (singleId) {
+      if (drawer?.id !== singleId || loadedDrawerIdRef.current !== singleId || detailLoading || detailReadError) {
+        setExportError('請先重新讀取這份登記，再下載PDF。');
+        return;
+      }
+    } else if (!listReady || listLoadingRef.current || !result || result.scope !== recordListScopeKey(requestedListScopeRef.current)) {
+      setExportError('請等候搜尋結果更新，再下載PDF。');
+      return;
+    } else if (scope === 'selected' ? selected.size === 0 : result.total === 0) {
+      setExportError('請先選擇可下載的登記資料。');
+      return;
+    }
     exportBusyRef.current = true; setExporting(true); setExportError('');
     const params = new URLSearchParams({ mode: exportMode });
     if (singleId) params.set('ids', singleId);
@@ -198,7 +223,11 @@ export default function AdminWorkspace() {
     finally { exportBusyRef.current = false; setExporting(false); }
   };
 
-  const changeKind = (next: IntakeKind | '') => { if (next === kind) return; listAsOfRef.current = ''; setKind(next); setPage(1); setExportBatch(1); setSelected(new Set()); };
+  const changeQuery = (next: string) => { requestedListScopeRef.current.q = next; setQuery(next); };
+  const changeKind = (next: IntakeKind | '') => { if (next === kind) return; requestedListScopeRef.current = { ...requestedListScopeRef.current, kind: next, page: 1 }; listAsOfRef.current = ''; setKind(next); setPage(1); setExportBatch(1); setSelected(new Set()); };
+  const changeStatus = (next: string) => { requestedListScopeRef.current = { ...requestedListScopeRef.current, status: next, page: 1 }; listAsOfRef.current = ''; setStatus(next); setPage(1); setExportBatch(1); setSelected(new Set()); };
+  const changePage = (next: number) => { requestedListScopeRef.current.page = next; setPage(next); };
+  const clearFilters = () => { requestedListScopeRef.current = { q: '', kind: '', status: '', page: 1 }; listAsOfRef.current = ''; setQuery(''); setSearch(''); setKind(''); setStatus(''); setPage(1); setExportBatch(1); setSelected(new Set()); };
   const draft = drawer ? recordDrafts[drawer.id] || recordDraft(drawer) : null;
   const draftChanged = drawer && draft && (drawer.status !== draft.status || drawer.notes !== draft.notes || (drawer.nextFollowUp||'')!==draft.nextFollowUp || JSON.stringify(drawer.data)!==JSON.stringify(draft.data));
   const totalPages = Math.max(1, Math.ceil((result?.total ?? 0) / (result?.pageSize || 20)));
@@ -218,12 +247,31 @@ export default function AdminWorkspace() {
       <div className="workspace-breadcrumb"><a href="/">首頁</a><ChevronRight size={14} aria-hidden="true"/><span>管理後台</span></div>
       <div className="admin-title-row"><div><p className="workspace-eyebrow">管理後台</p><h1>登記資料</h1><p>搜尋登記、更新跟進狀態及下載PDF。</p></div><div className="admin-account"><span>{session.email}</span><a href="/signout-with-chatgpt?return_to=%2Fadmin" target="_top">登出</a></div></div>
       <div className="admin-counts"><div><span>全部登記</span><strong>{result?.counts.all ?? '—'}</strong></div><div><span>求職者</span><strong>{result?.counts.jobseeker ?? '—'}</strong></div><div><span>僱主</span><strong>{result?.counts.employer ?? '—'}</strong></div><div><span>待聯絡</span><strong>{result?.counts.statuses['新登記'] ?? '—'}</strong></div></div>
-      <div className="admin-filters"><div className="admin-kind-filter" aria-label="登記類別">{([['','全部'],['jobseeker','求職者'],['employer','僱主']] as const).map(([value,label]) => <button key={value} className={kind === value ? 'active' : ''} aria-pressed={kind === value} onClick={() => changeKind(value)}>{label}</button>)}</div><div className="admin-search"><Search size={17} aria-hidden="true"/><label className="sr-only" htmlFor="admin-search">搜尋姓名、電話或登記編號</label><input id="admin-search" type="search" placeholder="姓名、電話或登記編號" value={query} onChange={event => setQuery(event.target.value)}/></div><label className="admin-status-filter"><span className="sr-only">跟進狀態</span><select value={status} onChange={event => { listAsOfRef.current = ''; setStatus(event.target.value); setPage(1); setExportBatch(1); setSelected(new Set()); }}><option value="">全部狀態</option>{statuses.map(item => <option key={item}>{item}</option>)}</select></label></div>
-      <section className="export-toolbar" aria-label="PDF下載設定"><div className="export-choice"><FileText size={20} strokeWidth={1.4} aria-hidden="true"/><fieldset><legend>PDF資料版本</legend><label><input type="radio" name="export-mode" value="client" disabled={exporting} checked={exportMode === 'client'} onChange={() => setExportMode('client')}/>客戶配對版</label><label><input type="radio" name="export-mode" value="full" disabled={exporting} checked={exportMode === 'full'} onChange={() => setExportMode('full')}/>完整資料</label></fieldset><p>{exportMode === 'client' ? '包含服務及配對資料，不含電話、電郵及內部備註。' : '包含聯絡資料及內部備註，供後台保存及跟進。'}</p><label className="export-batch"><span>篩選結果每份PDF包含</span><select value={exportBatchSize} disabled={exporting} onChange={event=>{setExportBatchSize(Number(event.target.value));setExportBatch(1);}}>{[5,20,50,100].map(size=><option key={size} value={size}>{size}份</option>)}</select></label>{exportBatches > 1 && <label className="export-batch"><span>全部篩選結果分批下載</span><select aria-label="下載批次" value={exportBatch} disabled={loading || exporting} onChange={event => setExportBatch(Number(event.target.value))}>{Array.from({ length: exportBatches }, (_, index) => <option value={index + 1} key={index}>第 {index + 1} 批：{index * exportBatchSize + 1}–{Math.min((index + 1) * exportBatchSize, result?.total ?? 0)}／{result?.total} 份</option>)}</select></label>}</div><div className="export-buttons"><button className="work-button secondary" disabled={exporting || selected.size === 0} onClick={() => void downloadPdf('selected')}><ArrowDownToLine size={16} aria-hidden="true"/>下載已選（{selected.size}）</button><button className="work-button primary" disabled={exporting || loading || Boolean(error) || !result?.total} onClick={() => void downloadPdf('all')}><ArrowDownToLine size={16} aria-hidden="true"/>{exporting ? '正在製作PDF…' : exportBatches > 1 ? '下載此批資料' : '下載全部篩選結果'}</button></div></section>
+      <div className="admin-filters">
+        <div className="admin-kind-filter" aria-label="登記類別">{([['','全部'],['jobseeker','求職者'],['employer','僱主']] as const).map(([value,label]) => <button key={value} className={kind === value ? 'active' : ''} aria-pressed={kind === value} onClick={() => changeKind(value)}>{label}</button>)}</div>
+        <div className="admin-search"><Search size={17} aria-hidden="true"/><label className="sr-only" htmlFor="admin-search">搜尋姓名、電話或登記編號</label><input id="admin-search" type="search" placeholder="姓名、電話或登記編號" value={query} onChange={event => changeQuery(event.target.value)}/></div>
+        <label className="admin-status-filter"><span className="sr-only">跟進狀態</span><select value={status} onChange={event => changeStatus(event.target.value)}><option value="">全部狀態</option>{statuses.map(item => <option key={item}>{item}</option>)}</select></label>
+      </div>
+      <section className="export-toolbar" aria-label="PDF下載設定">
+        <div className="export-choice">
+          <FileText size={20} strokeWidth={1.4} aria-hidden="true"/>
+          <fieldset><legend>PDF資料版本</legend>
+            <label><input type="radio" name="export-mode" value="client" disabled={exporting} checked={exportMode === 'client'} onChange={() => setExportMode('client')}/>客戶配對版</label>
+            <label><input type="radio" name="export-mode" value="full" disabled={exporting} checked={exportMode === 'full'} onChange={() => setExportMode('full')}/>完整資料</label>
+          </fieldset>
+          <p>{exportMode === 'client' ? '包含服務及配對資料，不含電話、電郵及內部備註。' : '包含聯絡資料及內部備註，供後台保存及跟進。'}</p>
+          <label className="export-batch"><span>篩選結果每份PDF包含</span><select value={exportBatchSize} disabled={exporting} onChange={event=>{setExportBatchSize(Number(event.target.value));setExportBatch(1);}}>{[5,20,50,100].map(size=><option key={size} value={size}>{size}份</option>)}</select></label>
+          {exportBatches > 1 && <label className="export-batch"><span>全部篩選結果分批下載</span><select aria-label="下載批次" value={exportBatch} disabled={!listReady || exporting} onChange={event => setExportBatch(Number(event.target.value))}>{Array.from({ length: exportBatches }, (_, index) => <option value={index + 1} key={index}>第 {index + 1} 批：{index * exportBatchSize + 1}–{Math.min((index + 1) * exportBatchSize, result?.total ?? 0)}／{result?.total} 份</option>)}</select></label>}
+        </div>
+        <div className="export-buttons">
+          <button className="work-button secondary" disabled={exporting || !listReady || selected.size === 0} onClick={() => void downloadPdf('selected')}><ArrowDownToLine size={16} aria-hidden="true"/>下載已選（{selected.size}）</button>
+          <button className="work-button primary" disabled={exporting || !listReady || !result?.total} onClick={() => void downloadPdf('all')}><ArrowDownToLine size={16} aria-hidden="true"/>{exporting ? '正在製作PDF…' : exportBatches > 1 ? '下載此批資料' : '下載全部篩選結果'}</button>
+        </div>
+      </section>
       {exportError && <p className="form-message error" role="alert">{exportError}</p>}
-      <div className="admin-list-heading"><p aria-live="polite">{loading ? '正在讀取資料…' : `找到 ${result?.total ?? 0} 份登記`}{selected.size > 0 && <span>　已選 {selected.size} 份 <button type="button" className="text-action" onClick={() => setSelected(new Set())}>取消選取</button></span>}</p><button type="button" className="text-action" disabled={loading} onClick={() => { listAsOfRef.current = ''; setExportBatch(1); setRefresh(current => current + 1); }}>重新整理</button></div>
-      {error ? <div className="admin-empty" role="alert"><h2>未能讀取登記資料</h2><p>{error}</p><button className="work-button secondary" onClick={() => { listAsOfRef.current = ''; setExportBatch(1); setRefresh(current => current + 1); }}>重試</button></div> : loading ? <div className="admin-empty" role="status"><p>正在讀取登記資料…</p></div> : records.length === 0 ? <div className="admin-empty"><FileText size={30} strokeWidth={1.3} aria-hidden="true"/><h2>{query || status || kind ? '沒有符合條件的登記' : '尚未有登記資料'}</h2><p>{query || status || kind ? '試試另一個關鍵字，或清除篩選條件。' : '求職者及僱主提交資料後，會顯示在這裡。'}</p>{(query || status || kind) && <button className="work-button secondary" onClick={() => { listAsOfRef.current = ''; setQuery(''); setSearch(''); setKind(''); setStatus(''); setPage(1); setExportBatch(1); setSelected(new Set()); }}>清除篩選</button>}</div> : <div className="admin-table-wrap"><table className="admin-table"><caption className="sr-only">登記資料，第 {page} 頁</caption><thead><tr><th scope="col" className="checkbox-column"><input ref={pageCheckboxRef} type="checkbox" aria-label="選取此頁全部登記" checked={allPageSelected} onChange={event => setSelected(current => { const next = new Set(current); records.forEach(record => event.target.checked ? next.add(record.id) : next.delete(record.id)); return next; })}/></th><th scope="col">登記人</th><th scope="col">類別</th><th scope="col">服務需要</th><th scope="col">聯絡電話</th><th scope="col">跟進狀態</th><th scope="col">提交日期</th><th scope="col">下次跟進</th><th scope="col"><span className="sr-only">操作</span></th></tr></thead><tbody>{records.map(record => <tr key={record.id} className={selected.has(record.id) ? 'row-selected' : ''}><td><input type="checkbox" aria-label={`選取 ${displayValue(record.data.fullName)} ${record.reference}`} checked={selected.has(record.id)} onChange={event => setSelected(current => { const next = new Set(current); if (event.target.checked) next.add(record.id); else next.delete(record.id); return next; })}/></td><td><button className="record-name" data-record-id={record.id} data-record-trigger="name" onClick={event => void openDrawer(record, event.currentTarget)}>{displayValue(record.data.fullName)}</button><span className="record-reference">{record.reference}</span></td><td><span className={`kind-tag ${record.kind}`}>{kindLabel(record.kind)}</span></td><td className="table-services">{displayValue(record.data.services) || '—'}</td><td className="table-phone">{displayValue(record.data.phone) || '—'}</td><td><span className={`status-tag status-${statuses.indexOf(record.status)}`}>{record.status}</span></td><td className="table-date">{formatDate(record.createdAt)}</td><td className="table-date">{record.nextFollowUp?followUpLabel(record.nextFollowUp):'—'}</td><td><button className="record-view" data-record-id={record.id} data-record-trigger="view" onClick={event => void openDrawer(record, event.currentTarget)} aria-label={`查看 ${record.reference}`}>查看<ChevronRight size={14} aria-hidden="true"/></button></td></tr>)}</tbody></table></div>}
-      {result && result.total > 0 && !error && <nav className="admin-pagination" aria-label="登記分頁"><span>第 {page} 頁，共 {totalPages} 頁</span><div><button className="work-button secondary" disabled={loading || page <= 1} onClick={() => setPage(current => current - 1)}><ArrowLeft size={15} aria-hidden="true"/>上一頁</button><button className="work-button secondary" disabled={loading || page >= totalPages} onClick={() => setPage(current => current + 1)}>下一頁<ArrowRight size={15} aria-hidden="true"/></button></div></nav>}
+      <div className="admin-list-heading"><p aria-live="polite">{listPending ? '正在讀取資料…' : `找到 ${result?.total ?? 0} 份登記`}{selected.size > 0 && <span>　已選 {selected.size} 份 <button type="button" className="text-action" onClick={() => setSelected(new Set())}>取消選取</button></span>}</p><button type="button" className="text-action" disabled={listPending} onClick={() => { listAsOfRef.current = ''; setExportBatch(1); setRefresh(current => current + 1); }}>重新整理</button></div>
+      {error ? <div className="admin-empty" role="alert"><h2>未能讀取登記資料</h2><p>{error}</p><button className="work-button secondary" onClick={() => { listAsOfRef.current = ''; setExportBatch(1); setRefresh(current => current + 1); }}>重試</button></div> : listPending ? <div className="admin-empty" role="status"><p>正在讀取登記資料…</p></div> : records.length === 0 ? <div className="admin-empty"><FileText size={30} strokeWidth={1.3} aria-hidden="true"/><h2>{query || status || kind ? '沒有符合條件的登記' : '尚未有登記資料'}</h2><p>{query || status || kind ? '試試另一個關鍵字，或清除篩選條件。' : '求職者及僱主提交資料後，會顯示在這裡。'}</p>{(query || status || kind) && <button className="work-button secondary" onClick={clearFilters}>清除篩選</button>}</div> : <div className="admin-table-wrap"><table className="admin-table"><caption className="sr-only">登記資料，第 {page} 頁</caption><thead><tr><th scope="col" className="checkbox-column"><input ref={pageCheckboxRef} type="checkbox" aria-label="選取此頁全部登記" checked={allPageSelected} onChange={event => setSelected(current => { const next = new Set(current); records.forEach(record => event.target.checked ? next.add(record.id) : next.delete(record.id)); return next; })}/></th><th scope="col">登記人</th><th scope="col">類別</th><th scope="col">服務需要</th><th scope="col">聯絡電話</th><th scope="col">跟進狀態</th><th scope="col">提交日期</th><th scope="col">下次跟進</th><th scope="col"><span className="sr-only">操作</span></th></tr></thead><tbody>{records.map(record => <tr key={record.id} className={selected.has(record.id) ? 'row-selected' : ''}><td><input type="checkbox" aria-label={`選取 ${displayValue(record.data.fullName)} ${record.reference}`} checked={selected.has(record.id)} onChange={event => setSelected(current => { const next = new Set(current); if (event.target.checked) next.add(record.id); else next.delete(record.id); return next; })}/></td><td><button className="record-name" data-record-id={record.id} data-record-trigger="name" onClick={event => void openDrawer(record, event.currentTarget)}>{displayValue(record.data.fullName)}</button><span className="record-reference">{record.reference}</span></td><td><span className={`kind-tag ${record.kind}`}>{kindLabel(record.kind)}</span></td><td className="table-services">{displayValue(record.data.services) || '—'}</td><td className="table-phone">{displayValue(record.data.phone) || '—'}</td><td><span className={`status-tag status-${statuses.indexOf(record.status)}`}>{record.status}</span></td><td className="table-date">{formatDate(record.createdAt)}</td><td className="table-date">{record.nextFollowUp?followUpLabel(record.nextFollowUp):'—'}</td><td><button className="record-view" data-record-id={record.id} data-record-trigger="view" onClick={event => void openDrawer(record, event.currentTarget)} aria-label={`查看 ${record.reference}`}>查看<ChevronRight size={14} aria-hidden="true"/></button></td></tr>)}</tbody></table></div>}
+      {result && result.total > 0 && !error && <nav className="admin-pagination" aria-label="登記分頁"><span>第 {page} 頁，共 {totalPages} 頁</span><div><button className="work-button secondary" disabled={!listReady || page <= 1} onClick={() => changePage(page - 1)}><ArrowLeft size={15} aria-hidden="true"/>上一頁</button><button className="work-button secondary" disabled={!listReady || page >= totalPages} onClick={() => changePage(page + 1)}>下一頁<ArrowRight size={15} aria-hidden="true"/></button></div></nav>}
     </div>
     {drawer && <div className="drawer-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) closeDrawer(); }}><div ref={drawerRef} className="record-drawer" role="dialog" aria-modal="true" aria-labelledby="record-detail-title"><div className="drawer-header"><div><p>{kindLabel(drawer.kind)}登記 · {drawer.reference}</p><h2 id="record-detail-title">{displayValue(drawer.data.fullName)}</h2><span>提交於 {formatDate(drawer.createdAt, true)}</span></div><button ref={drawerCloseRef} className="drawer-close" disabled={saving} onClick={closeDrawer} aria-label="關閉資料詳情"><X size={22} aria-hidden="true"/></button></div><div className="drawer-body">
       {detailLoading && <p className="form-message" role="status">正在更新完整資料…</p>}{conflictState === 'detected' && <div className="conflict-notice" role="alert"><strong>此登記已有其他更新</strong><p>你的修改仍然保留。請先載入最新資料，檢查後再儲存。</p><button type="button" className="work-button secondary" disabled={detailLoading} onClick={() => void openDrawer(drawer, triggerRef.current || drawerCloseRef.current!)}>載入最新資料</button></div>}{conflictState === 'review' && <div className="conflict-notice" role="status"><strong>已載入最新資料</strong><p>以下是目前已儲存的內容。請比較你的修改，確認後再儲存。</p><dl><div><dt>目前狀態</dt><dd>{drawer.status}</dd></div><div><dt>目前內部備註</dt><dd>{drawer.notes || '未填寫'}</dd></div><div><dt>目前跟進日期</dt><dd>{followUpLabel(drawer.nextFollowUp||'')}</dd></div>{allFields(drawer.kind).filter(field=>isFieldVisible(field,drawer.data)&&JSON.stringify(drawer.data[field.name])!==JSON.stringify(draft?.data[field.name])).map(field=><div key={field.name}><dt>{field.label}</dt><dd>{intakeFieldValue(field,drawer.data[field.name])}</dd></div>)}</dl></div>}
@@ -233,7 +281,7 @@ export default function AdminWorkspace() {
         <div className="followup-save"><span aria-live="polite">{saveNote&&<><Check size={15} aria-hidden="true"/>{saveNote}</>}{draftChanged&&!saveNote?'有未儲存的修改':''}</span><button type="submit" className="work-button primary" disabled={editingDisabled||conflictState==='detected'||!draftChanged}>{saving?'正在儲存…':conflictState==='review'?'確認覆蓋並儲存':'儲存更新'}</button></div>
       </form>
       <div className="drawer-details">{sections[drawer.kind].map(section => <section key={section.title}><h3>{section.title}</h3><dl>{section.fields.filter(field=>isFieldVisible(field,drawer.data)).map(field => <div key={field.name}><dt>{field.label}</dt><dd>{intakeFieldValue(field,drawer.data[field.name])}</dd></div>)}</dl></section>)}</div>
-      <div className="drawer-export"><p>目前PDF版本：<strong>{exportMode === 'client' ? '客戶配對版' : '完整資料'}</strong></p><button className="work-button secondary" disabled={exporting || detailLoading} onClick={() => void downloadPdf('selected', drawer.id)}><ArrowDownToLine size={16} aria-hidden="true"/>{exporting ? '正在製作PDF…' : '下載這份登記'}</button>{exportError && <p className="field-error" role="alert">{exportError}</p>}</div>
+      <div className="drawer-export"><p>目前PDF版本：<strong>{exportMode === 'client' ? '客戶配對版' : '完整資料'}</strong></p><button className="work-button secondary" disabled={exporting || detailLoading || detailReadError || loadedDrawerIdRef.current !== drawer.id} onClick={() => void downloadPdf('selected', drawer.id)}><ArrowDownToLine size={16} aria-hidden="true"/>{exporting ? '正在製作PDF…' : '下載這份登記'}</button>{exportError && <p className="field-error" role="alert">{exportError}</p>}</div>
     </div></div></div>}
   </main>;
 }
