@@ -1,7 +1,7 @@
 import { env } from 'cloudflare:workers';
 import { allFields, districts, services, type IntakeData, type IntakeRecord } from './fields';
 import { ApiError, assertKeys, db, getRecord, safeText, validateWorkExperiences } from './server';
-import { candidateTypes, matchStages, publicationStates, type CandidatePublic, type CandidatePublication, type MatchRecord, type SiteInfo } from './platform-types';
+import { candidateAgeRanges, candidateTypes, matchStages, publicationStates, type CandidatePublic, type CandidatePublication, type MatchRecord, type SiteInfo } from './platform-types';
 
 export const publicProfileKeys = ['displayName', 'services', 'nationality', 'candidateType', 'age', 'education', 'currentLocation', 'languages', 'yearsExperience', 'skills', 'employmentType', 'workLocations', 'availableFrom', 'expectedSalary', 'salaryUnit', 'salaryNegotiable', 'summary', 'qualifications', 'workExperiences'] as const;
 type Profile = Omit<CandidatePublic, 'id' | 'reference' | 'hasPhoto' | 'updatedAt'>;
@@ -101,7 +101,7 @@ export async function publicationById(id: string, publicOnly = false) {
 }
 export function candidateQuery(url: URL) {
   const clauses = ["p.state = 'published'", "json_extract(i.data_json, '$.publicProfileConsent') = 1"];
-  const bindings: string[] = [];
+  const bindings: (string | number)[] = [];
   const ids = url.searchParams.get('ids');
   if (ids !== null) {
     const selected = ids.split(',').filter(Boolean);
@@ -109,23 +109,32 @@ export function candidateQuery(url: URL) {
     clauses.push(`p.id IN (${selected.map(() => '?').join(',')})`); bindings.push(...selected);
   }
   const q = textValue(url.searchParams.get('q') ?? '', '搜尋文字', 160);
-  if (q) { clauses.push("lower(p.profile_json) LIKE ? ESCAPE '\\'"); bindings.push(`%${q.toLowerCase().replace(/[\\%_]/g, match => `\\${match}`)}%`); }
+  if (q) { const pattern = `%${q.toLowerCase().replace(/[\\%_]/g, match => `\\${match}`)}%`; clauses.push("(lower(p.profile_json) LIKE ? ESCAPE '\\' OR lower(i.reference) LIKE ? ESCAPE '\\')"); bindings.push(pattern, pattern); }
   const filters: Record<string, [string, string[]]> = {
-    service: ['services', services], nationality: ['nationality', fieldOptions('nationality')], candidateType: ['candidateType', candidateTypes], language: ['languages', fieldOptions('languages')], experience: ['yearsExperience', fieldOptions('yearsExperience')], employmentType: ['employmentType', fieldOptions('employmentType')], district: ['workLocations', districts],
+    service: ['services', services], nationality: ['nationality', fieldOptions('nationality')], candidateType: ['candidateType', candidateTypes], language: ['languages', fieldOptions('languages')], experience: ['yearsExperience', fieldOptions('yearsExperience')], employmentType: ['employmentType', fieldOptions('employmentType')], district: ['workLocations', districts], education: ['education', fieldOptions('education')], skill: ['skills', fieldOptions('skills')],
   };
   for (const [parameter, [field, options]] of Object.entries(filters)) {
     const value = url.searchParams.get(parameter) || ''; if (!value) continue;
     if (!options.includes(value)) throw new ApiError(400, '搜尋條件無效。');
-    if (['services', 'languages', 'workLocations'].includes(field)) {
+    if (['services', 'languages', 'workLocations', 'skills'].includes(field)) {
       clauses.push(`EXISTS (SELECT 1 FROM json_each(p.profile_json, '$.${field}') WHERE value = ?${field === 'workLocations' ? " OR value = '全香港'" : ''})`);
     } else clauses.push(`json_extract(p.profile_json, '$.${field}') = ?`);
     bindings.push(value);
   }
+  const ageRange = url.searchParams.get('ageRange') || '';
+  if (ageRange) {
+    const range = candidateAgeRanges.find(range => range.value === ageRange);
+    if (!range) throw new ApiError(400, '年齡條件無效。');
+    clauses.push("CAST(json_extract(p.profile_json, '$.age') AS INTEGER) BETWEEN ? AND ?");
+    bindings.push(range.min, range.max);
+  }
   const sort = url.searchParams.get('sort') || 'newest';
   const orders: Record<string, string> = {
-    newest: 'p.updated_at DESC, p.id DESC', available: "CASE WHEN json_extract(p.profile_json, '$.availableFrom') = '' THEN 1 ELSE 0 END, json_extract(p.profile_json, '$.availableFrom') ASC, p.id DESC",
+    newest: 'p.updated_at DESC, p.id DESC', oldest: 'p.updated_at ASC, p.id ASC', available: "CASE WHEN json_extract(p.profile_json, '$.availableFrom') = '' THEN 1 ELSE 0 END, json_extract(p.profile_json, '$.availableFrom') ASC, p.id DESC",
     'salary-asc': "CASE WHEN json_extract(p.profile_json, '$.expectedSalary') = '' THEN 1 ELSE 0 END, CAST(json_extract(p.profile_json, '$.expectedSalary') AS REAL) ASC, p.id DESC",
     'salary-desc': "CAST(json_extract(p.profile_json, '$.expectedSalary') AS REAL) DESC, p.id DESC",
+    'age-asc': "CASE WHEN coalesce(json_extract(p.profile_json, '$.age'), '') = '' THEN 1 ELSE 0 END, CAST(json_extract(p.profile_json, '$.age') AS INTEGER) ASC, p.id DESC",
+    'age-desc': "CASE WHEN coalesce(json_extract(p.profile_json, '$.age'), '') = '' THEN 1 ELSE 0 END, CAST(json_extract(p.profile_json, '$.age') AS INTEGER) DESC, p.id DESC",
   };
   if (!orders[sort]) throw new ApiError(400, '排序方式無效。');
   const pageText = url.searchParams.get('page') || '1';

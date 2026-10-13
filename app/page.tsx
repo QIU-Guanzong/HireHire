@@ -1,14 +1,15 @@
 import { ArrowRight, Search } from 'lucide-react';
-import { services } from '@/lib/fields';
+import { allFields, services } from '@/lib/fields';
 import { candidateTypes } from '@/lib/platform-types';
 import { serviceContent } from '@/lib/service-content';
 export default function Home() {
  return <main id="main-content">
   <section className="home-search-band"><div className="site-width home-search-layout"><div className="home-search-main">
    <p className="page-kicker">家合僱傭</p><h1>家傭、陪月及家居照顧</h1><p className="home-lead">按工作需要找人選，查看履歷後提交聘用要求。</p>
-   <form action="/candidates" method="get" className="home-search-form">
+   <form action="/candidates" method="get" className="home-search-form home-search-form--extended">
     <label>服務類別<select name="service" defaultValue=""><option value="">所有服務</option>{services.map(s=><option key={s}>{s}</option>)}</select></label>
     <label>人選類型<select name="candidateType" defaultValue=""><option value="">所有類型</option>{candidateTypes.map(s=><option key={s}>{s}</option>)}</select></label>
+    <label>工作技能<select name="skill" defaultValue=""><option value="">不限技能</option>{allFields('jobseeker').find(field=>field.name==='skills')?.options?.map(skill=><option key={skill}>{skill}</option>)}</select></label>
     <button className="button primary" type="submit"><Search size={17}/>搜尋人選</button>
    </form>
    <div className="home-search-links"><a href="/candidates">瀏覽所有人選 <ArrowRight size={14}/></a><a href="/employer">直接填寫聘用需要 <ArrowRight size={14}/></a></div>

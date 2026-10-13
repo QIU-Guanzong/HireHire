@@ -2,17 +2,20 @@
 
 import { useEffect, useState } from 'react';
 import type { CandidatePublic } from '@/lib/platform-types';
+import { safeCandidateSearchReturn } from '@/lib/candidate-search';
 import { CandidateButtons, CandidateNoScript, CandidatePortrait, CandidateSelectionBar, CandidateUtilityLinks, candidateDate, candidateSalary, useCandidateSelections } from './candidate-common';
 import './candidates.css';
 
 export function CandidateDetail({ id }: { id: string }) {
   const selection = useCandidateSelections(), [candidate, setCandidate] = useState<CandidatePublic | null>(null);
   const [loading, setLoading] = useState(true), [error, setError] = useState(''), [unavailable, setUnavailable] = useState(false), [retry, setRetry] = useState(0);
+  const [searchReturn, setSearchReturn] = useState('/candidates');
+  useEffect(() => { setSearchReturn(safeCandidateSearchReturn(new URLSearchParams(window.location.search).get('returnTo'))); }, [id]);
   useEffect(() => {
     const controller = new AbortController(); setLoading(true); setError(''); setUnavailable(false); setCandidate(null);
     fetch(`/api/candidates/${encodeURIComponent(id)}`, { signal: controller.signal, cache: 'no-store' })
       .then(async response => { if (response.status === 404) { setUnavailable(true); return null; } if (!response.ok) throw new Error('暫時未能載入履歷，請再試一次。'); return response.json() as Promise<CandidatePublic>; })
-      .then(data => { setCandidate(data); setLoading(false); })
+      .then(data => { if (controller.signal.aborted) return; setCandidate(data); setLoading(false); })
       .catch((reason: unknown) => { if (controller.signal.aborted) return; setError(reason instanceof Error ? reason.message : '暫時未能載入履歷，請再試一次。'); setLoading(false); });
     return () => controller.abort();
   }, [id, retry]);
@@ -20,10 +23,10 @@ export function CandidateDetail({ id }: { id: string }) {
     ['國籍／地區',candidate.nationality], ['求職情況',candidate.candidateType], ['年齡',candidate.age ? `${candidate.age}歲` : ''], ['教育程度',candidate.education], ['目前所在地',candidate.currentLocation], ['相關工作年資',candidate.yearsExperience], ['可使用語言',candidate.languages.join('、')],
   ] : [];
   return <main id="main-content" className="site-width candidate-page candidate-detail-page">
-    <div className="candidate-page-heading"><p className="candidate-breadcrumb"><a href="/">首頁</a><span aria-hidden="true">／</span><a href="/candidates">搜尋人選</a><span aria-hidden="true">／</span>人選履歷</p><CandidateUtilityLinks selection={selection} /></div>
+    <div className="candidate-page-heading"><p className="candidate-breadcrumb"><a href="/">首頁</a><span aria-hidden="true">／</span><a href={searchReturn}>搜尋人選</a><span aria-hidden="true">／</span>人選履歷</p><CandidateUtilityLinks selection={selection} /></div>
     <CandidateNoScript /><p className="candidate-status" role="status">{loading ? '正在載入履歷…' : selection.message}</p>
     {error && <div className="candidate-error" role="alert"><p>{error}</p><button className="button secondary" type="button" onClick={() => setRetry(retry + 1)}>重新載入</button></div>}
-    {unavailable && <div className="candidate-empty"><h1>此人選履歷暫未能查看</h1><p>履歷可能已暫停公開，你可查看其他人選或提交聘用需要。</p><div className="candidate-action-row"><a className="button primary" href="/candidates">返回搜尋</a><a className="button secondary" href="/employer">填寫聘用需要</a></div>{(selection.saved.includes(id) || selection.compared.includes(id)) && <button className="candidate-text-link" type="button" onClick={() => { selection.write('saved', selection.saved.filter(item => item !== id)); selection.write('compare', selection.compared.filter(item => item !== id)); selection.setMessage('已從清單移除此人選。'); }}>從收藏及比較清單移除</button>}</div>}
+    {unavailable && <div className="candidate-empty"><h1>此人選履歷暫未能查看</h1><p>履歷可能已暫停公開，你可查看其他人選或提交聘用需要。</p><div className="candidate-action-row"><a className="button primary" href={searchReturn}>返回搜尋</a><a className="button secondary" href="/employer">填寫聘用需要</a></div>{(selection.saved.includes(id) || selection.compared.includes(id)) && <button className="candidate-text-link" type="button" onClick={() => { selection.write('saved', selection.saved.filter(item => item !== id)); selection.write('compare', selection.compared.filter(item => item !== id)); selection.setMessage('已從清單移除此人選。'); }}>從收藏及比較清單移除</button>}</div>}
     {candidate && <>
       <section className="candidate-profile-summary" aria-labelledby="candidate-name">
         <CandidatePortrait candidate={candidate} large />
@@ -47,7 +50,7 @@ export function CandidateDetail({ id }: { id: string }) {
           <div className="candidate-side-help"><h2>想了解此人選？</h2><p>選擇人選後填寫家庭及服務需要，我們會跟進聘用安排。</p><a href={`/employer?candidates=${encodeURIComponent(candidate.id)}`} className="button primary">填寫聘用需要</a></div>
         </aside>
       </div>
-      <a className="candidate-back" href="/candidates">← 返回人選搜尋</a>
+      <a className="candidate-back" href={searchReturn}>← 返回人選搜尋</a>
     </>}
     <CandidateSelectionBar selection={selection} />
   </main>;

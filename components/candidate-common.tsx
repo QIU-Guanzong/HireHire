@@ -59,7 +59,7 @@ export function candidateSalary(candidate: CandidatePublic) {
   return `HK$ ${value}${candidate.salaryUnit ? `／${candidate.salaryUnit.replace(/^每/, '')}` : ''}`;
 }
 export function candidateDate(value: string) { return value ? value.replace(/-/g, '/') : '待確認'; }
-export const candidateLink = (id: string) => `/candidates/${encodeURIComponent(id)}`;
+export const candidateLink = (id: string, returnTo?: string) => `/candidates/${encodeURIComponent(id)}${returnTo ? `?returnTo=${encodeURIComponent(returnTo)}` : ''}`;
 export const employerLink = (ids: string[]) => `/employer${ids.length ? `?candidates=${encodeURIComponent(ids.join(','))}` : ''}`;
 export const compareLink = (ids: string[]) => `/compare${ids.length ? `?ids=${encodeURIComponent(ids.join(','))}` : ''}`;
 
@@ -77,9 +77,9 @@ export function CandidateButtons({ candidate, selection, includeChoose = false }
     <button className="candidate-action" type="button" aria-pressed={compared} disabled={!selection.ready} onClick={() => selection.toggle('compare', candidate.id)} aria-label={`${compared ? '移出比較' : '加入比較'}${candidate.displayName}`}>{compared ? '已加入比較' : '加入比較'}</button>
   </div>;
 }
-export function CandidateCard({ candidate, selection }: { candidate: CandidatePublic; selection: CandidateSelection }) {
+export function CandidateCard({ candidate, selection, returnTo }: { candidate: CandidatePublic; selection: CandidateSelection; returnTo?: string }) {
   return <article className="candidate-card">
-    <a className="candidate-card-main" href={candidateLink(candidate.id)}>
+    <a className="candidate-card-main" href={candidateLink(candidate.id, returnTo)}>
       <CandidatePortrait candidate={candidate} />
       <div className="candidate-card-info">
         <p className="candidate-reference">{candidate.reference}</p><h2>{candidate.displayName}</h2>
@@ -102,6 +102,6 @@ export function CandidateSelectionBar({ selection }: { selection: CandidateSelec
   return <aside className="candidate-selection-bar" aria-label="比較清單"><span>已選{selection.compared.length}位人選</span><a className="button secondary" href={compareLink(selection.compared)}>比較資料</a><a className="button primary" href={employerLink(selection.compared)}>提交聘用需要</a><button className="candidate-clear" type="button" onClick={() => { selection.write('compare', []); selection.setMessage('已清空比較清單。'); }}>清空</button></aside>;
 }
 export function CandidateNoScript() { return <noscript><style>{'.candidate-status,.candidate-search-layout,.candidate-utility{display:none!important}'}</style><div className="candidate-notice">請啟用 JavaScript 查看及選擇人選。你也可以先查看<a href="/services">服務介紹</a>。</div></noscript>; }
-export function CandidateEmpty({ filtered = false }: { filtered?: boolean }) {
-  return <div className="candidate-empty"><h2>{filtered ? '暫時沒有符合條件的人選' : '暫時未有公開人選'}</h2><p>{filtered ? '可以減少篩選條件，或把需要交給我們跟進。' : '你可先填寫服務需要，方便安排合適人選。'}</p><a className="button primary" href="/employer">填寫聘用需要</a><a className="candidate-text-link" href="/jobseeker">我想登記求職</a></div>;
+export function CandidateEmpty({ filtered = false, employerHref = '/employer' }: { filtered?: boolean; employerHref?: string }) {
+  return <div className="candidate-empty"><h2>{filtered ? '暫時沒有符合條件的人選' : '暫時未有公開人選'}</h2><p>{filtered ? '可以減少篩選條件，或把需要交給我們跟進。' : '你可先填寫服務需要，方便安排合適人選。'}</p><a className="button primary" href={employerHref}>填寫聘用需要</a><a className="candidate-text-link" href="/jobseeker">我想登記求職</a></div>;
 }

@@ -41,8 +41,9 @@ async function moduleUrl(file) {
   for (const name of ['pdf-lib', '@pdf-lib/fontkit']) source = source.replaceAll(`from '${name}'`, `from '${pathToFileURL(require.resolve(name)).href}'`);
   return `data:text/javascript;base64,${Buffer.from(source).toString('base64')}`;
 }
-for (const name of ['platform-types', 'fields', 'server', 'platform-server', 'pdf']) urls[name] = await moduleUrl(`lib/${name}.ts`);
+for (const name of ['platform-types', 'fields', 'candidate-search', 'server', 'platform-server', 'pdf']) urls[name] = await moduleUrl(`lib/${name}.ts`);
 const fields = await import(urls.fields), server = await import(urls.server), platform = await import(urls['platform-server']), pdfUtils = await import(urls.pdf);
+const searchHelpers = await import(urls['candidate-search']);
 const routes = {};
 for (const [name, path] of Object.entries({
   intake: 'intake', photo: 'intake-photo', records: 'admin/records', record: 'admin/records/[id]', adminCandidates: 'admin/candidates', adminCandidate: 'admin/candidates/[id]', candidates: 'candidates', candidate: 'candidates/[id]', candidatePhoto: 'candidates/[id]/photo', privatePhoto: 'admin/photos/[id]', candidatePdf: 'candidates/[id]/pdf', candidateExport: 'candidates/export', matches: 'admin/matches', match: 'admin/matches/[id]', matchExport: 'admin/matches/export', settings: 'admin/settings', siteInfo: 'site-info', export: 'admin/export', health: 'health',
@@ -118,10 +119,82 @@ async function checkPdfDefaults() {
     for (const fixture of fixtures) sqlite.prepare('DELETE FROM intake_records WHERE id = ?').run(fixture.id);
   }
 }
-const pdfDefaultOnly = process.argv.includes('--pdf-default-only');
+async function checkPublicSearch() {
+  const before = checks, token = randomUUID().slice(0, 8).replace(/\d/g, digit => String.fromCharCode(97 + Number(digit))), marker = `search-${token}`, fixtures = [];
+  await mkdir('work/navigation-search', { recursive: true });
+  try {
+    for (let index = 0; index < 17; index++) {
+      const id = randomUUID(), publicationId = randomUUID(), number = String(index + 1).padStart(2, '0');
+      const age = ['24', '62', ''][index % 3], education = ['大學或以上', '小學', '其他'][index % 3], skill = ['兒童照顧', '煮食', '寵物照顧'][index % 3];
+      const consented = index !== 15, state = index === 16 ? 'paused' : 'published';
+      const time = new Date(Date.UTC(2026, 0, 1, 0, 0, index)).toISOString(), reference = `JH-SEARCH-${token}-${number}`;
+      const data = server.validateData('jobseeker', { ...seeker, fullName: `合成私人名字${number}`, phone: '00000000', email: 'search-private@example.test', age, education, skills: [skill], publicProfileConsent: consented });
+      const record = { id, reference, kind: 'jobseeker', data, status: '新登記', notes: 'PRIVATE_SEARCH_NOTE', nextFollowUp: '', createdAt: time, updatedAt: time };
+      const profile = platform.validatePublicProfile({ ...platform.draftProfile(record), displayName: `驗證人選${number}`, services: ['家傭'], skills: [skill], age, education, expectedSalary: String(10000 + index * 100), availableFrom: `2026-11-${number}`, summary: `${marker} 合成公開簡介${index === 0 ? ' 100%完成_測試\\例' : ''}` });
+      const hash = await server.hash(`${marker}-${id}`);
+      sqlite.prepare('INSERT INTO intake_records (id,reference,kind,data_json,search_text,status,notes,created_at,updated_at,idempotency_hash,request_hash) VALUES (?,?,?,?,?,?,?,?,?,?,?)').run(id, reference, 'jobseeker', JSON.stringify(data), marker, '新登記', record.notes, time, time, hash, hash);
+      sqlite.prepare('INSERT INTO candidate_publications (id,intake_id,profile_json,state,created_at,updated_at) VALUES (?,?,?,?,?,?)').run(publicationId, id, JSON.stringify(profile), state, time, time);
+      fixtures.push({ id, publicationId, reference, profile });
+    }
+    const query = async parameters => {
+      const response = await call('candidates', 'GET', undefined, undefined, false, `/api/candidates?${new URLSearchParams(parameters)}`);
+      await expectStatus(response, 200, 'Public search query accepted'); return response.json();
+    };
+    const eligible = fixtures.slice(0, 15);
+    const reference = await query({ q: fixtures[0].reference.toLowerCase() });
+    expect(reference.total === 1 && reference.candidates[0].id === fixtures[0].publicationId, 'Displayed reference is searchable without appearing in public profile JSON');
+    const first = await query({ q: marker }), second = await query({ q: marker, page: '2' });
+    expect(first.total === 15 && first.candidates.length === 12 && second.candidates.length === 3 && !first.candidates.some(person => second.candidates.some(other => person.id === other.id)), 'Public search pages cover every eligible person exactly once');
+    expect([...first.candidates, ...second.candidates].every(person => eligible.some(fixture => fixture.publicationId === person.id)), 'Reference/profile search never exposes paused or unconsented people');
+    const fixtureDtos = [...first.candidates, ...second.candidates];
+    expect(!JSON.stringify(fixtureDtos).includes('search-private@example.test') && !JSON.stringify(fixtureDtos).includes('PRIVATE_SEARCH_NOTE') && !JSON.stringify(fixtureDtos).includes('合成私人名字'), 'Search returns curated public data only');
+    for (const [parameters, predicate] of [
+      [{ education: '大學或以上' }, person => person.education === '大學或以上'],
+      [{ skill: '兒童照顧' }, person => person.skills.includes('兒童照顧')],
+      [{ ageRange: '18-29' }, person => Number(person.age) >= 18 && Number(person.age) <= 29],
+      [{ ageRange: '60-100' }, person => Number(person.age) >= 60],
+      [{ education: '大學或以上', skill: '兒童照顧', ageRange: '18-29' }, person => person.education === '大學或以上' && person.skills.includes('兒童照顧') && person.age === '24'],
+    ]) {
+      const result = await query({ q: marker, ...parameters });
+      expect(result.total === 5 && result.candidates.every(predicate), 'Education, skill and age filters match actual public fields');
+    }
+    expect((await query({ q: marker, education: '小學', ageRange: '18-29' })).total === 0, 'Conflicting filters produce an honest empty result');
+    expect((await query({ q: marker, ageRange: '40-49' })).total === 0, 'Unspecified ages are not treated as an age-band match');
+    for (const literal of ['%', '_', '\\']) { const result = await query({ q: literal }); expect(result.total === 1 && result.candidates[0].id === fixtures[0].publicationId, 'Wildcard characters are searched literally'); }
+    for (const q of ['search-private@example.test', 'PRIVATE_SEARCH_NOTE', '合成私人名字']) expect((await query({ q })).total === 0, 'Private intake values cannot be searched publicly');
+    for (const sort of ['newest', 'oldest', 'available', 'salary-asc', 'salary-desc', 'age-asc', 'age-desc']) {
+      const pages = await query({ q: marker, sort }), tail = await query({ q: marker, sort, page: '2' }), people = [...pages.candidates, ...tail.candidates];
+      if (sort.startsWith('age-')) {
+        const expected = sort === 'age-asc' ? [...Array(5).fill('24'), ...Array(5).fill('62'), ...Array(5).fill('')] : [...Array(5).fill('62'), ...Array(5).fill('24'), ...Array(5).fill('')];
+        expect(JSON.stringify(people.map(person => person.age)) === JSON.stringify(expected), 'Age order is effective and unspecified ages stay last');
+      } else {
+        const expected = ['newest', 'salary-desc'].includes(sort) ? [...eligible].reverse() : eligible;
+        expect(people.every((person, index) => person.id === expected[index].publicationId), 'Single selected sort orders every page consistently');
+      }
+    }
+    for (const parameters of [{ education: '不存在' }, { skill: '不存在' }, { ageRange: '0-999' }, { sort: 'view-count' }]) await expectStatus(await call('candidates', 'GET', undefined, undefined, false, `/api/candidates?${new URLSearchParams(parameters)}`), 400, 'Unsupported public filter/sort rejected');
+    const parsed = searchHelpers.candidateFiltersFromSearch('?service=家傭&district=沙田&employmentType=兼職&education=大學或以上&ageRange=18-29&skill=兒童照顧&sort=age-asc&page=2');
+    expect(parsed.education === '大學或以上' && parsed.ageRange === '18-29' && parsed.skill === '兒童照顧' && parsed.page === '2', 'Browser URL restoration retains new filters and page');
+    const href = searchHelpers.candidateSearchHref(parsed);
+    expect(JSON.stringify(searchHelpers.candidateFiltersFromSearch(href.split('?')[1])) === JSON.stringify(parsed), 'Search URL round-trip preserves exact applied choices');
+    expect(searchHelpers.safeCandidateSearchReturn(href) === href, 'Detail return retains the canonical search context');
+    for (const unsafe of ['https://evil.example/candidates', '//evil.example/candidates', '/admin?mode=full', 'javascript:alert(1)', '/candidates?service=不存在&sort=SQL']) expect(searchHelpers.safeCandidateSearchReturn(unsafe) === '/candidates', 'Detail return cannot become an external or private-page redirect');
+    const employerHref = searchHelpers.candidateEmployerHref(parsed), employerParams = new URLSearchParams(employerHref.split('?')[1]);
+    expect(employerParams.get('service') === '家傭' && employerParams.get('district') === '沙田' && employerParams.get('employmentType') === '兼職' && !employerParams.has('education') && !employerParams.has('ageRange'), 'Empty search carries only supported employer prefill fields');
+    expect(!searchHelpers.candidateEmployerHref({ ...parsed, employmentType: '均可' }).includes('employmentType'), 'Jobseeker-only work preference is not forced into employer registration');
+    const invalid = searchHelpers.candidateFiltersFromSearch('?education=不存在&ageRange=0-999&skill=不存在&sort=SQL&page=-1');
+    expect(invalid.education === '' && invalid.ageRange === '' && invalid.skill === '' && invalid.sort === 'newest' && invalid.page === '1', 'Invalid shared links restore safe visible defaults');
+    await writeFile('work/navigation-search/public-fixtures.json', JSON.stringify({ candidates: fixtureDtos, marker, unavailableIds: fixtures.slice(15).map(fixture => fixture.publicationId), syntheticOnly: true }, null, 2));
+    return checks - before;
+  } finally {
+    for (const fixture of fixtures) sqlite.prepare('DELETE FROM intake_records WHERE id = ?').run(fixture.id);
+  }
+}
+const pdfDefaultOnly = process.argv.includes('--pdf-default-only'), publicSearchOnly = process.argv.includes('--public-search-only');
 try {
-  const pdfDefaultChecks = await checkPdfDefaults();
-  if (!pdfDefaultOnly) {
+  const publicSearchChecks = pdfDefaultOnly ? 0 : await checkPublicSearch();
+  const pdfDefaultChecks = publicSearchOnly ? 0 : await checkPdfDefaults();
+  if (!pdfDefaultOnly && !publicSearchOnly) {
   expect((await (await call('health')).json()).version === '1.1.0', 'Health verifies migrated schema and release version.');
   invalid(()=>platform.optionalDate('2026-11-01T15:00:99Z','面試',true));
   expect(server.validateData('jobseeker', { ...seeker, publicProfileConsent: undefined }).publicProfileConsent === false, 'Public consent defaults false.');
@@ -329,8 +402,8 @@ try {
   expect(Buffer.byteLength(JSON.stringify(longSettings))>65536,'Valid 20-item Chinese fee table exceeds former settings byte cap.');
   await expectStatus(await call('settings','PATCH',longSettings,undefined,true),200,'Valid long Chinese company settings accepted');
   }
-  const report={passed:true,checks,pdfDefaultChecks,focusedOnly:pdfDefaultOnly,isolatedDatabase:true,fixtureObjects:objects.size,pdfs:pdfDefaultOnly?['default-selected.pdf','empty-mode.pdf','explicit-client.pdf','default-filtered.pdf','explicit-full.pdf']:['candidate.pdf','match-client.pdf','match-full.pdf'],testedAt:new Date().toISOString()};
-  await writeFile(pdfDefaultOnly?'work/admin-pdf-default/focused-report.json':'work/platform-check/report.json',JSON.stringify(report,null,2)); console.log(JSON.stringify(report));
+  const report={passed:true,checks,pdfDefaultChecks,publicSearchChecks,focusedOnly:pdfDefaultOnly||publicSearchOnly,isolatedDatabase:true,fixtureObjects:objects.size,pdfs:publicSearchOnly?[]:pdfDefaultOnly?['default-selected.pdf','empty-mode.pdf','explicit-client.pdf','default-filtered.pdf','explicit-full.pdf']:['candidate.pdf','match-client.pdf','match-full.pdf'],testedAt:new Date().toISOString()};
+  await writeFile(publicSearchOnly?'work/navigation-search/focused-report.json':pdfDefaultOnly?'work/admin-pdf-default/focused-report.json':'work/platform-check/report.json',JSON.stringify(report,null,2)); console.log(JSON.stringify(report));
 } finally {
   objects.clear(); sqlite.close(); delete globalThis.__jiahePlatformEnv;
   // This task owns only its exact temporary text files; PDFs are QA evidence.
