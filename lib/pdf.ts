@@ -1,4 +1,4 @@
-import { env } from 'cloudflare:workers';
+import { env, loadPdfFont } from './runtime';
 import { PDFDocument, rgb, type PDFFont, type PDFPage } from 'pdf-lib';
 import fontkit from '@pdf-lib/fontkit';
 import { isFieldVisible, kindLabel, parseWorkExperiences, sections, type Field, type IntakeRecord } from './fields';
@@ -16,11 +16,7 @@ const pdfDecodedPhotoBudget = 64 * 1024 * 1024;
 let cachedFont: Promise<Uint8Array> | undefined;
 async function fontBytes(request: Request) {
   if (!cachedFont) cachedFont = (async () => {
-    const url = new URL('/fonts/jiahe-cjk-regular.ttf', request.url);
-    let response = env.ASSETS ? await env.ASSETS.fetch(new Request(url)) : null;
-    if (!response?.ok) response = await fetch(url);
-    if (!response.ok) throw new ApiError(503, '暫時未能製作PDF，請稍後再試。');
-    const bytes = new Uint8Array(await response.arrayBuffer());
+    const bytes = await loadPdfFont();
     if (bytes.length < 1000 || !((bytes[0] === 0 && bytes[1] === 1) || String.fromCharCode(...bytes.slice(0, 4)) === 'OTTO')) throw new ApiError(503, '暫時未能製作PDF，請稍後再試。');
     return bytes;
   })().catch(error => { cachedFont = undefined; throw error; });

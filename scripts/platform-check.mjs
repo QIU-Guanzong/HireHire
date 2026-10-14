@@ -23,8 +23,10 @@ class Statement {
   run() { return Promise.resolve(this.execute()); }
 }
 const objects = new Map();
+const trustedTestContexts = new WeakMap();
+let testWritesEnabled = true;
 globalThis.__jiahePlatformEnv = {
-  ADMIN_EMAILS: 'admin@example.test', RATE_LIMIT_SALT: 'isolated-platform-test',
+  RATE_LIMIT_SALT: 'isolated-platform-test',
   DB: { prepare: sql => new Statement(sql), batch: statements => {
     sqlite.exec('BEGIN'); try { const values = statements.map(statement => statement.execute()); sqlite.exec('COMMIT'); return Promise.resolve(values); } catch (error) { sqlite.exec('ROLLBACK'); throw error; }
   } },
@@ -33,10 +35,27 @@ globalThis.__jiahePlatformEnv = {
   } },
   ASSETS: { fetch: async () => new Response(await readFile('public/fonts/jiahe-cjk-regular.ttf')) },
 };
+// Test-only trusted transport injection. Production never recognizes these
+// globals or treats request identity/IP headers as a management channel.
+globalThis.__jiahePlatformRuntime = {
+  env: globalThis.__jiahePlatformEnv,
+  runtimeSession: request => {
+    const principal = trustedTestContexts.get(request)?.principal;
+    return { authenticated: Boolean(principal), authorized: principal === 'admin', configured: true, email: principal ? `${principal}@example.test` : null };
+  },
+  expectedOrigin: () => 'https://unit.example.test',
+  clientIp: request => {
+    if (!trustedTestContexts.has(request)) trustedTestContexts.set(request, { ip: `synthetic-peer-${++ipCount}` });
+    return trustedTestContexts.get(request).ip;
+  },
+  loadPdfFont: async () => new Uint8Array(await (await globalThis.__jiahePlatformEnv.ASSETS.fetch()).arrayBuffer()),
+  checkRuntimeReadiness: async () => {},
+  writesEnabled: () => testWritesEnabled,
+};
 const urls = {};
 async function moduleUrl(file) {
   let source = stripTypeScriptTypes(await readFile(file, 'utf8'));
-  source = source.replace(/import \{ env \} from ['"]cloudflare:workers['"];?/g, 'const env = globalThis.__jiahePlatformEnv;');
+  source = source.replace(/import \{([^}]+)\} from ['"](?:\.\/runtime|@\/lib\/runtime)['"];?/g, 'const {$1} = globalThis.__jiahePlatformRuntime;');
   source = source.replaceAll("from '../package.json'", `from '${pathToFileURL('package.json').href}'`);
   for (const [name, url] of Object.entries(urls)) source = source.replaceAll(`from './${name}'`, `from '${url}'`).replaceAll(`from '@/lib/${name}'`, `from '${url}'`);
   for (const name of ['pdf-lib', '@pdf-lib/fontkit']) source = source.replaceAll(`from '${name}'`, `from '${pathToFileURL(require.resolve(name)).href}'`);
@@ -51,8 +70,10 @@ for (const [name, path] of Object.entries({
 })) routes[name] = await import(await moduleUrl(`app/api/${path}/route.ts`));
 const origin = 'https://unit.example.test'; let checks = 0, ipCount = 0;
 const expect = (value, message) => { assert(value, message); checks++; };
-function request(path, { body, method = 'GET', auth = false, headers = {} } = {}) {
-  return new Request(`${origin}${path}`, { method, headers: { ...(auth ? { 'oai-authenticated-user-id': 'unit-admin', 'oai-authenticated-user-email': 'admin@example.test' } : {}), ...(body !== undefined ? { Origin: origin, 'Content-Type': 'application/json' } : {}), 'cf-connecting-ip': `198.51.100.${++ipCount % 254}`, ...headers }, ...(body !== undefined ? { body: JSON.stringify(body) } : {}) });
+function request(path, { body, method = 'GET', auth = false, principal, headers = {} } = {}) {
+  const result = new Request(`${origin}${path}`, { method, headers: { ...(body !== undefined ? { Origin: origin, 'Content-Type': 'application/json' } : {}), ...headers }, ...(body !== undefined ? { body: JSON.stringify(body) } : {}) });
+  trustedTestContexts.set(result, { principal: principal || (auth ? 'admin' : null), ip: `synthetic-peer-${++ipCount}` });
+  return result;
 }
 async function call(name, method = 'GET', body, id, auth = false, path) {
   return routes[name][method](request(path || `/api/${name}`, { method, body, auth }), { params: Promise.resolve({ id }) });
@@ -113,7 +134,7 @@ async function checkPdfDefaults() {
     for (const mode of ['', '&mode=full']) {
       const path = `/api/admin/export?ids=${ids}${mode}`;
       await expectStatus(await call('export', 'GET', undefined, undefined, false, path), 401, 'Default/full export still denies anonymous requests');
-      await expectStatus(await routes.export.GET(request(path, { headers: { 'oai-authenticated-user-id': 'unapproved-user', 'oai-authenticated-user-email': 'unapproved@example.test' } })), 403, 'Default/full export still denies an unapproved account');
+      await expectStatus(await routes.export.GET(request(path, { principal: 'unapproved' })), 403, 'Default/full export still denies an unapproved trusted principal');
     }
     return checks - before;
   } finally {
@@ -272,7 +293,7 @@ async function checkClientRedaction() {
     for(const route of ['export','matchExport'])for(const mode of ['client','full','invalid']){
       const path=route==='export'?`/api/admin/export?ids=${fixtures[0].id}&mode=${mode}`:`/api/admin/matches/export?employerId=${fixtures[0].id}&mode=${mode}`;
       const anonymous=await call(route,'GET',undefined,undefined,false,path);await expectStatus(anonymous,401,`${route} ${mode} denies anonymous access`);expect(anonymous.headers.get('Cache-Control')==='no-store',`${route} denied mode is not cached`);
-      const denied=await routes[route].GET(request(path,{headers:{'oai-authenticated-user-id':'unapproved','oai-authenticated-user-email':'unapproved@example.test'}}));await expectStatus(denied,403,`${route} ${mode} denies unapproved account`);
+      const denied=await routes[route].GET(request(path,{principal:'unapproved'}));await expectStatus(denied,403,`${route} ${mode} denies unapproved trusted principal`);
       if(mode==='invalid'){const invalidMode=await call(route,'GET',undefined,undefined,true,path);await expectStatus(invalidMode,400,`${route} invalid mode rejected`);expect(invalidMode.headers.get('Cache-Control')==='no-store'&&invalidMode.headers.get('Content-Type').includes('application/json'),`${route} mode error is uncached JSON, not a full PDF`);}
     }
     return checks-before;
@@ -325,7 +346,16 @@ try {
   await expectStatus(await call('adminCandidates', 'POST', { intakeId: randomUUID() }), 401, 'Anonymous publication denied');
   const spoofEmail = request('/api/admin/records', { headers: { 'oai-authenticated-user-email': 'admin@example.test' } });
   expect(server.adminSession(spoofEmail).authorized === false, 'Email without trusted user identity cannot authorize.');
+  expect(server.adminSession(request('/api/admin/records', { headers: { 'oai-authenticated-user-id': 'unit-admin', 'oai-authenticated-user-email': 'admin@example.test' } })).authorized === false, 'A complete client-forged identity cannot select the management transport.');
   const png = portraitFixture();
+  const beforeClosed = sqlite.prepare('SELECT (SELECT COUNT(*) FROM intake_records) AS records, (SELECT COUNT(*) FROM intake_photos) AS photos, (SELECT COUNT(*) FROM intake_rate_limits) AS quota').get();
+  testWritesEnabled = false;
+  try {
+    await expectStatus(await call('intake', 'POST', { kind: 'jobseeker', data: seeker, idempotencyKey: randomUUID() }), 503, 'Closed writes reject a valid registration');
+    await expectStatus(await routes.photo.POST(new Request(`${origin}/api/intake-photo`, { method: 'POST', headers: { Origin: origin, 'Content-Type': 'image/png' }, body: png })), 503, 'Closed writes reject a valid photo');
+    await expectStatus(await call('settings', 'PATCH', { phone: '61234567', expectedUpdatedAt: '' }, undefined, true), 503, 'Closed writes also reject trusted management updates');
+    expect(JSON.stringify(beforeClosed) === JSON.stringify(sqlite.prepare('SELECT (SELECT COUNT(*) FROM intake_records) AS records, (SELECT COUNT(*) FROM intake_photos) AS photos, (SELECT COUNT(*) FROM intake_rate_limits) AS quota').get()), 'Closed submissions consume neither records, photos nor quota');
+  } finally { testWritesEnabled = true; }
   let uploaded = await routes.photo.POST(new Request(`${origin}/api/intake-photo`, { method: 'POST', headers: { Origin: 'https://wrong.example.test', 'Content-Type': 'image/png' }, body: png }));
   await expectStatus(uploaded, 403, 'Cross-site photo upload denied');
   uploaded = await routes.photo.POST(new Request(`${origin}/api/intake-photo`, { method: 'POST', headers: { Origin: origin, 'Content-Type': 'text/html' }, body: 'html' }));

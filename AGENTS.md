@@ -5,6 +5,7 @@
 - The development repository is `QIU-Guanzong/HireHire`. The product is 家合僱傭 at `https://hire.astock.top`.
 - Read `README.md` and `docs/CLOUD_HANDOFF.md` before changes. Reuse the existing checkout, lockfile and suitable worktree; preserve unrelated changes.
 - Keep the existing Sites project ID in `.openai/hosting.json`. Do not create a replacement website or change DNS for routine development.
+- The owner now requests migration to the existing GCP server and `hire.astock.top`. Current development targets the native Next/Node entry, persistent private SQLite and private files. Sites configuration and V4 artifacts are historical rollback provenance; do not publish another Sites version. Production/DNS/IAM changes require the active operations scope, not local development authorization.
 - Keep this project separate from A-Stock, RedHorse, ORI and other business repositories, data and credentials.
 
 ## User requirements
@@ -18,7 +19,7 @@
 
 ## Protected behavior
 
-- Production admin access stays closed until `ADMIN_EMAILS` is explicitly configured through Sites secrets. Never add a production mock login, hard-coded administrator or client-controlled authorization.
+- Node production management stays disabled by default. It uses a separately verified private Unix transport only after the operator confirms OS/IAP/SSH access scope, socket permissions and fixed management origin. This is an OS access boundary, not a verified personal IAP identity. Public identity headers never authorize. Never add a production mock login, hard-coded administrator or client-controlled authorization. The real administrator remains deliberately deferred.
 - Public profiles require both current jobseeker public consent and staff publication. Old registrations never become public automatically. Admin edits cannot grant public consent on behalf of the applicant.
 - Keep public profile/PDF fields independent from private intake data. Public and client PDFs exclude phone, email and internal notes; complete PDFs require admin authorization.
 - Preserve intake idempotency, uncertain-submission retry payloads, optimistic version conflict handling, original submissions, photo ownership/expiry and stable PDF batch ordering.
@@ -29,9 +30,10 @@
 
 - Use Node >=22.13 and the existing `package-lock.json`; install with `npm run install:ci`. Do not switch package managers or upgrade dependencies to solve environment setup.
 - Relevant checks: `node node_modules/typescript/bin/tsc --noEmit`, `node scripts/platform-check.mjs --unit`, then `npm run build`, serially. The PDF tests require Poppler `pdftotext`.
+- Node storage and HTTP migration checks use `scripts/node-storage-check.mjs` and `scripts/node-http-check.mjs` with explicit isolated loopback/Unix transport and synthetic data. Restart persistence, forged identities, consent withdrawal, PDF modes, same-origin and photo claims are release gates. The old Worker HTTP harness remains historical and must not be used against GCP production.
 - HTTP checks only accept loopback: `node scripts/platform-http-check.mjs http://127.0.0.1:5177`. Use synthetic local fixtures and remove only their exact IDs/objects. Do not create valid production test submissions.
 - For UI changes, cover desktop, 360px mobile, keyboard and reduced motion. Check the affected workflow, including empty/error/retry/back/success states and PDF rendering when relevant.
-- Commit and push validated changes to HireHire. Follow the Sites skill for source synchronization, packaging, saving and publication to the existing public project. A GitHub commit/PR is not a deployed release; report each state accurately.
+- Commit validated changes to an independent HireHire branch. Package the verified Node candidate with `scripts/package-node-release.mjs` and the GCP handoff. Push only with existing authorized capability; do not install credentials or force branches. A GitHub commit, artifact or PR is not a deployed release; report each state accurately. This migration development round must not deploy, change production data or DNS.
 - If cloud access cannot publish, preserve a reviewable branch/PR and report the specific missing capability. Do not fabricate a deployment result or move the work back to the Mac for heavy tests.
 
 ## Resources and cleanup

@@ -1,4 +1,4 @@
-import { env } from 'cloudflare:workers';
+import { env } from '@/lib/runtime';
 import { ApiError, applyRateLimit, db, handleApi, hash, json, requireSameOrigin } from '@/lib/server';
 import { imageDimensions } from '@/lib/platform-server';
 export const dynamic = 'force-dynamic';
