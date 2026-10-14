@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import './globals.css';
+import './visual-refresh.css';
 import SiteNavigation from '@/components/site-navigation';
 export const metadata: Metadata = {
  title:{default:'家合僱傭｜家傭、陪月及家居照顧',template:'%s｜家合僱傭'},
