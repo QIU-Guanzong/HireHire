@@ -179,6 +179,17 @@ async function validateLock() {
   if (lock.lockfileVersion !== 3 || !lock.packages?.['']) throw new Error('Expected the existing npm v3 lockfile.');
   for (const [name, entry] of Object.entries(lock.packages)) {
     if (name === '') continue;
+    // npm lockfiles omit individual tarball metadata for dependencies bundled
+    // inside a parent tarball. These reviewed dev-only WASM children are not
+    // installed by --omit=dev; verify their integrity-locked parent instead.
+    if (entry.dev === true && entry.inBundle === true && !entry.link && !entry.resolved && !entry.integrity) {
+      const parentName = name.slice(0, name.lastIndexOf('/node_modules/'));
+      const parent = lock.packages[parentName];
+      if (!parent || parent.dev !== true || !parent.resolved || !parent.integrity || parent.link) {
+        throw new Error('A bundled development dependency has no integrity-locked parent.');
+      }
+      continue;
+    }
     if (entry.link || !entry.resolved || !entry.integrity) throw new Error('Only registry packages locked with integrity are permitted.');
     const source = new URL(entry.resolved);
     if (source.protocol !== 'https:' || source.hostname !== 'registry.npmjs.org' || source.port ||
