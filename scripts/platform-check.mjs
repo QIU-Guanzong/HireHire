@@ -37,11 +37,12 @@ const urls = {};
 async function moduleUrl(file) {
   let source = stripTypeScriptTypes(await readFile(file, 'utf8'));
   source = source.replace(/import \{ env \} from ['"]cloudflare:workers['"];?/g, 'const env = globalThis.__jiahePlatformEnv;');
+  source = source.replaceAll("from '../package.json'", `from '${pathToFileURL('package.json').href}'`);
   for (const [name, url] of Object.entries(urls)) source = source.replaceAll(`from './${name}'`, `from '${url}'`).replaceAll(`from '@/lib/${name}'`, `from '${url}'`);
   for (const name of ['pdf-lib', '@pdf-lib/fontkit']) source = source.replaceAll(`from '${name}'`, `from '${pathToFileURL(require.resolve(name)).href}'`);
   return `data:text/javascript;base64,${Buffer.from(source).toString('base64')}`;
 }
-for (const name of ['platform-types', 'fields', 'candidate-search', 'server', 'platform-server', 'pdf-contact-redaction', 'pdf']) urls[name] = await moduleUrl(`lib/${name}.ts`);
+for (const name of ['app-version', 'platform-types', 'fields', 'candidate-search', 'server', 'platform-server', 'pdf-contact-redaction', 'pdf']) urls[name] = await moduleUrl(`lib/${name}.ts`);
 const fields = await import(urls.fields), server = await import(urls.server), platform = await import(urls['platform-server']), pdfUtils = await import(urls.pdf);
 const searchHelpers = await import(urls['candidate-search']);
 const routes = {};
@@ -283,7 +284,7 @@ try {
   const pdfDefaultChecks = publicSearchOnly || clientRedactionOnly ? 0 : await checkPdfDefaults();
   const clientRedactionChecks = pdfDefaultOnly || publicSearchOnly ? 0 : await checkClientRedaction();
   if (!pdfDefaultOnly && !publicSearchOnly && !clientRedactionOnly) {
-  expect((await (await call('health')).json()).version === '1.1.0', 'Health verifies migrated schema and release version.');
+  expect((await (await call('health')).json()).version === JSON.parse(await readFile('package.json', 'utf8')).version, 'Health verifies migrated schema and package release version.');
   invalid(()=>platform.optionalDate('2026-11-01T15:00:99Z','面試',true));
   expect(server.validateData('jobseeker', { ...seeker, publicProfileConsent: undefined }).publicProfileConsent === false, 'Public consent defaults false.');
   expect(server.validateData('jobseeker', { ...seeker, salaryNegotiable: true, expectedSalary: undefined, salaryUnit: undefined }).expectedSalary === '', 'Negotiable salary allows omitted amount.');

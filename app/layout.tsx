@@ -1,7 +1,9 @@
 import type { Metadata } from 'next';
 import './globals.css';
+import '@/components/workspace.css';
 import './visual-refresh.css';
 import SiteNavigation from '@/components/site-navigation';
+import { BrandVersion } from '@/components/brand-version';
 export const metadata: Metadata = {
  title:{default:'家合僱傭｜家傭、陪月及家居照顧',template:'%s｜家合僱傭'},
  description:'搜尋人選、查看工作履歷，登記家傭、陪月、長者照顧及家居服務的聘用需要。',
@@ -23,7 +25,7 @@ export default function RootLayout({children}:Readonly<{children:React.ReactNode
   `}</style></noscript>
   <a className="skip-link" href="#main-content">跳到主要內容</a>
   <header className="site-header"><div className="site-width header-inner">
-   <a className="brand" href="/" aria-label="家合僱傭首頁"><span className="brand-mark" aria-hidden="true">合</span><span>家合僱傭<small>家傭 · 陪月 · 家居照顧</small></span></a>
+   <a className="brand" href="/" aria-label="家合僱傭首頁" aria-describedby="brand-version"><span className="brand-mark" aria-hidden="true">合</span><span className="brand-wordmark"><span className="brand-name">家合僱傭</span><small>家傭 · 陪月 · 家居照顧</small><BrandVersion/></span></a>
    <div className="header-utility"><a href="/saved">已收藏人選</a><a href="/compare">人選比較</a><a href="/jobseeker">求職者登記</a></div>
   </div><SiteNavigation/></header>
   {children}

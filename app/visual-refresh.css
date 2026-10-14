@@ -21,6 +21,11 @@ body:has(.home-page), body:has(.candidate-catalog-page) { background: var(--pape
 .site-header .brand { color: var(--accent); font-size: 25px; gap: 12px; letter-spacing: .025em; }
 .site-header .brand-mark { width: 44px; height: 46px; background: var(--sun); color: var(--accent); border-radius: 11px 11px 3px 11px; font-weight: 600; }
 .site-header .brand small { color: var(--muted); font-size: 11px; letter-spacing: .055em; }
+.site-header .brand-wordmark { display: grid; grid-template-columns: auto auto; column-gap: 10px; align-items: center; }
+.site-header .brand-name { line-height: 1.3; }
+.site-header .brand-wordmark > small { grid-column: 1; line-height: 1.6; }
+.site-header .brand-version { display: flex; align-items: center; gap: 5px; grid-column: 2; grid-row: 1 / 3; font-size: 11px; line-height: 1.3; font-weight: 400; letter-spacing: 0; color: var(--muted); font-variant-numeric: tabular-nums; }
+.site-header .brand-version-mode { display: inline-block; min-width: 3em; }
 .site-header .header-utility { font-size: 13px; gap: 25px; color: var(--accent); }
 .site-header .header-utility a { display: inline-flex; align-items: center; min-width: 44px; min-height: 44px; }
 .site-header .header-utility a[href="/jobseeker"] { display: none; }
@@ -93,6 +98,8 @@ body:has(.home-page) .site-footer a, body:has(.candidate-catalog-page) .site-foo
   .site-header .brand { font-size: 22px; gap: 9px; }
   .site-header .brand-mark { width: 36px; height: 40px; font-size: 24px; border-radius: 9px 9px 3px 9px; }
   .site-header .brand small { font-size: 9px; }
+  .site-header .brand-wordmark { column-gap: 7px; }
+  .site-header .brand-version { flex-direction: column; align-items: flex-start; gap: 2px; font-size: 9px; }
   .site-header .header-utility { gap: 14px; font-size: 11px; }
   .site-header .header-utility a:last-child { display: none; }
   .site-header .hire-menu-toggle { font-size: 14px; color: var(--accent); background: transparent; }
@@ -133,4 +140,9 @@ body:has(.home-page) .site-footer a, body:has(.candidate-catalog-page) .site-foo
   .home-page .home-bottom-row { margin-top: 28px; gap: 17px; }
   .home-page .home-bottom-row h2 { font-size: 19px; }
   .home-page .home-bottom-row p { font-size: 14px; }
+}
+@media (max-width: 390px) {
+  .site-header .brand-wordmark { display: block; }
+  .site-header .brand-name { display: block; }
+  .site-header .brand-version { flex-direction: row; font-size: 10px; gap: 5px; margin-top: 2px; }
 }

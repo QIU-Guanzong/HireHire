@@ -1,6 +1,5 @@
 "use client";
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
-import './workspace.css';
 import './private-admin.css';
 
 export class AdminApiError extends Error {

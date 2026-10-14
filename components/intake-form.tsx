@@ -4,7 +4,6 @@ import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'r
 import { ArrowLeft, ArrowRight, Check, CheckCircle2, ChevronRight } from 'lucide-react';
 import { allFields, isFieldVisible, kindLabel, parseWorkExperiences, sections, services, type Field, type IntakeData, type IntakeKind } from '@/lib/fields';
 import { formatWorkExperience, type CandidatePublic, type WorkExperience } from '@/lib/platform-types';
-import './workspace.css';
 
 type Attempt = { key: string; fingerprint: string };
 type PhotoAttachment = { id: string; token: string };

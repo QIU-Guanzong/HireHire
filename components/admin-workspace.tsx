@@ -6,7 +6,6 @@ import { allFields, isFieldVisible, kindLabel, sections, statuses, type IntakeDa
 import { IntakeDataFields, intakeFieldValue, validateIntakeFields } from './intake-form';
 import { AdminNavigation } from './private-admin-shell';
 import { usePrivatePdfPreview } from './private-pdf-preview';
-import './workspace.css';
 
 type Session = { authenticated: boolean; authorized: boolean; configured: boolean; email: string | null };
 type RecordsResult = { records: IntakeRecord[]; total: number; page: number; pageSize: number; asOf: string; counts: { all: number; jobseeker: number; employer: number; statuses: Record<string, number> } };
