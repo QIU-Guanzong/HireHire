@@ -1,4 +1,4 @@
-import { env } from 'cloudflare:workers';
+import { env, runtimeSession, expectedOrigin, clientIp, writesEnabled } from './runtime';
 import { allFields, isFieldVisible, statuses, type IntakeData, type IntakeKind, type IntakeRecord } from './fields';
 
 export class ApiError extends Error {
@@ -31,11 +31,7 @@ export function db(): D1Database {
 }
 
 export function adminSession(request: Request) {
-  const email = (request.headers.get('oai-authenticated-user-email') || '').trim().toLowerCase();
-  const userId = (request.headers.get('oai-authenticated-user-id') || '').trim();
-  const allowlist = (env.ADMIN_EMAILS || '').split(',').map(value => value.trim().toLowerCase()).filter(Boolean);
-  const authenticated = Boolean(userId && email);
-  return { authenticated, authorized: Boolean(authenticated && allowlist.includes(email)), configured: allowlist.length > 0, email: authenticated ? email : null };
+  return runtimeSession(request);
 }
 
 export function requireAdmin(request: Request) {
@@ -47,9 +43,10 @@ export function requireAdmin(request: Request) {
 
 export function requireSameOrigin(request: Request) {
   const origin = request.headers.get('origin');
-  if (!origin || origin !== new URL(request.url).origin || request.headers.get('sec-fetch-site') === 'cross-site') {
+  if (!origin || origin !== expectedOrigin(request) || request.headers.get('sec-fetch-site') === 'cross-site') {
     throw new ApiError(403, '請從本站提交資料。');
   }
+  if (!writesEnabled()) throw new ApiError(503, '資料提交暫未開放，請稍後再試。');
 }
 
 const isObject = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -187,8 +184,8 @@ export async function hash(text: string) {
 export async function applyRateLimit(request: Request) {
   const now = Math.floor(Date.now() / 1000);
   const hour = Math.floor(now / 3600);
-  const ip = request.headers.get('cf-connecting-ip') || 'local-preview';
-  const key = await hash(`${env.RATE_LIMIT_SALT || new URL(request.url).hostname}:${hour}:${ip}`);
+  const ip = clientIp(request);
+  const key = await hash(`${env.RATE_LIMIT_SALT}:${hour}:${ip}`);
   await db().prepare('DELETE FROM intake_rate_limits WHERE expires_at < ?').bind(now).run();
   const result = await db().prepare(`INSERT INTO intake_rate_limits (key, attempts, expires_at) VALUES (?, 1, ?)
     ON CONFLICT(key) DO UPDATE SET attempts = attempts + 1 WHERE attempts < 8

@@ -1,0 +1,10 @@
+export const env: { DB: unknown; BUCKET: unknown; RATE_LIMIT_SALT: string };
+export function initializeNodeRuntime(): Promise<void>;
+export function checkRuntimeReadiness(): Promise<void>;
+export function loadPdfFont(): Promise<Uint8Array>;
+export function runtimeSession(request?: Request): { authenticated: boolean; authorized: boolean; configured: boolean; email: string | null; name?: string | null; transport?: string };
+export function expectedOrigin(request?: Request): string | null;
+export function clientIp(request?: Request): string;
+export function closeNodeRuntime(): void;
+export function releaseChannel(): 'preview' | 'production';
+export function writesEnabled(): boolean;

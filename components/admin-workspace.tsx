@@ -6,9 +6,8 @@ import { allFields, isFieldVisible, kindLabel, sections, statuses, type IntakeDa
 import { IntakeDataFields, intakeFieldValue, validateIntakeFields } from './intake-form';
 import { AdminNavigation } from './private-admin-shell';
 import { usePrivatePdfPreview } from './private-pdf-preview';
-import './workspace.css';
 
-type Session = { authenticated: boolean; authorized: boolean; configured: boolean; email: string | null };
+type Session = { authenticated: boolean; authorized: boolean; configured: boolean; email: string | null; name?: string | null };
 type RecordsResult = { records: IntakeRecord[]; total: number; page: number; pageSize: number; asOf: string; counts: { all: number; jobseeker: number; employer: number; statuses: Record<string, number> } };
 type RecordListScope = { q: string; kind: IntakeKind | ''; status: string; page: number };
 type LoadedRecordsResult = RecordsResult & { scope: string };
@@ -251,13 +250,12 @@ export default function AdminWorkspace() {
   if (sessionLoading) return <main id="main-content" className="site-width admin-gate"><p className="workspace-eyebrow">管理後台</p><h1>正在讀取管理帳戶…</h1><p role="status">請稍候。</p><noscript><p className="form-message">請開啟瀏覽器的 JavaScript 以使用管理後台。</p></noscript></main>;
   if (sessionError) return <main id="main-content" className="site-width admin-gate"><h1>暫時無法開啟後台</h1><p role="alert">{sessionError}</p><button className="work-button primary" onClick={() => void loadSession()}>重新載入</button></main>;
   if (!session?.configured) return <main id="main-content" className="site-width admin-gate"><ShieldCheck size={32} strokeWidth={1.4} aria-hidden="true"/><p className="workspace-eyebrow">管理後台</p><h1>管理帳戶尚未設定</h1><p>設定管理帳戶後，可查看登記、更新狀態及下載PDF。</p><a className="work-button secondary" href="/">返回首頁<ArrowRight size={16} aria-hidden="true"/></a></main>;
-  if (!session.authenticated) return <main id="main-content" className="site-width admin-gate"><ShieldCheck size={32} strokeWidth={1.4} aria-hidden="true"/><p className="workspace-eyebrow">管理後台</p><h1>登入管理後台</h1><p>使用管理帳戶登入。</p><a className="work-button primary" href="/signin-with-chatgpt?return_to=%2Fadmin" target="_top">以管理帳戶登入<ArrowRight size={16} aria-hidden="true"/></a></main>;
-  if (!session.authorized) return <main id="main-content" className="site-width admin-gate"><ShieldCheck size={32} strokeWidth={1.4} aria-hidden="true"/><h1>此帳戶未獲管理權限</h1><p>{session.email}</p><a className="work-button secondary" href="/signout-with-chatgpt?return_to=%2Fadmin" target="_top">更換登入帳戶<ArrowRight size={16} aria-hidden="true"/></a></main>;
+  if (!session.authenticated || !session.authorized) return <main id="main-content" className="site-width admin-gate"><ShieldCheck size={32} strokeWidth={1.4} aria-hidden="true"/><h1>請從管理入口開啟後台</h1><a className="work-button secondary" href="/">返回首頁<ArrowRight size={16} aria-hidden="true"/></a></main>;
 
   return <main id="main-content" className="site-width admin-page">
     <div inert={Boolean(drawer)} className="admin-content"><AdminNavigation active="/admin"/>
       <div className="workspace-breadcrumb"><a href="/">首頁</a><ChevronRight size={14} aria-hidden="true"/><span>管理後台</span></div>
-      <div className="admin-title-row"><div><p className="workspace-eyebrow">管理後台</p><h1>登記資料</h1><p>搜尋登記、更新跟進狀態及下載PDF。</p></div><div className="admin-account"><span>{session.email}</span><a href="/signout-with-chatgpt?return_to=%2Fadmin" target="_top">登出</a></div></div>
+      <div className="admin-title-row"><div><p className="workspace-eyebrow">管理後台</p><h1>登記資料</h1><p>搜尋登記、更新跟進狀態及下載PDF。</p></div><div className="admin-account"><span>{session.name || session.email}</span><a href="/">離開後台</a></div></div>
       <div className="admin-counts"><div><span>全部登記</span><strong>{result?.counts.all ?? '—'}</strong></div><div><span>求職者</span><strong>{result?.counts.jobseeker ?? '—'}</strong></div><div><span>僱主</span><strong>{result?.counts.employer ?? '—'}</strong></div><div><span>待聯絡</span><strong>{result?.counts.statuses['新登記'] ?? '—'}</strong></div></div>
       <div className="admin-filters">
         <div className="admin-kind-filter" aria-label="登記類別">{([['','全部'],['jobseeker','求職者'],['employer','僱主']] as const).map(([value,label]) => <button key={value} className={kind === value ? 'active' : ''} aria-pressed={kind === value} onClick={() => changeKind(value)}>{label}</button>)}</div>

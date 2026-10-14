@@ -5,6 +5,7 @@ import { candidateSortOptions as sortOptions, type CandidateResults } from '@/li
 import { blankCandidateFilters as blankFilters, candidateFilterOptions as filterOptions, candidateFilterLabels, candidateFilterText, candidateFiltersFromSearch as filtersFromSearch, candidateFiltersQuery as filtersQuery, candidateSearchHref, candidateEmployerHref, type CandidateFilters as Filters } from '@/lib/candidate-search';
 import { CandidateCard, CandidateEmpty, CandidateNoScript, CandidateSelectionBar, CandidateUtilityLinks, useCandidateSelections } from './candidate-common';
 import './candidates.css';
+import './candidates-visual.css';
 
 export function CandidateCatalog() {
   const selection = useCandidateSelections(), [filters, setFilters] = useState<Filters>(blankFilters), [applied, setApplied] = useState<Filters>(blankFilters);
@@ -41,7 +42,7 @@ export function CandidateCatalog() {
   const pages = result ? Math.ceil(result.total / result.pageSize) : 1;
   const pendingChanges = filtersQuery(filters).toString() !== filtersQuery(applied).toString();
   const appliedConditions = [['q', '關鍵字'], ...candidateFilterLabels].filter(([key]) => applied[key as keyof Filters]).map(([key, label]) => ({ key: key as keyof Filters, label, value: candidateFilterText(key as keyof Filters, applied[key as keyof Filters]) }));
-  return <main id="main-content" className="site-width candidate-page">
+  return <main id="main-content" className="site-width candidate-page candidate-catalog-page">
     <div className="candidate-page-heading"><div><p className="candidate-breadcrumb"><a href="/">首頁</a><span aria-hidden="true">／</span>搜尋人選</p><h1>搜尋人選</h1><p>按服務、經驗和工作安排，查看合適的求職簡介。</p></div><CandidateUtilityLinks selection={selection} /></div>
     <CandidateNoScript />
     <div className="candidate-search-layout">
