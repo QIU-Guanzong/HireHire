@@ -205,8 +205,8 @@ function npmEnvironment(cachePath) {
     'NO_PROXY', 'http_proxy', 'https_proxy', 'all_proxy', 'no_proxy'];
   const environment = Object.fromEntries(allowed.filter(name => process.env[name] !== undefined)
     .map(name => [name, process.env[name]]));
-  return { ...environment, NODE_ENV: 'production', npm_config_userconfig: '/dev/null',
-    npm_config_globalconfig: '/dev/null', npm_config_cache: cachePath,
+  return { ...environment, NODE_ENV: 'production', npm_config_userconfig: path.join(cachePath, 'empty-user.npmrc'),
+    npm_config_globalconfig: path.join(cachePath, 'empty-global.npmrc'), npm_config_cache: cachePath,
     npm_config_registry: 'https://registry.npmjs.org', npm_config_ignore_scripts: 'true',
     npm_config_audit: 'false', npm_config_fund: 'false', NEXT_TELEMETRY_DISABLED: '1' };
 }
