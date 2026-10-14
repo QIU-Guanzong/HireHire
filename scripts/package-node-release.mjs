@@ -1,7 +1,8 @@
-import { createHash } from 'node:crypto';
-import { createReadStream, createWriteStream } from 'node:fs';
-import { access, copyFile, lstat, mkdir, readFile, readdir, readlink, realpath, writeFile } from 'node:fs/promises';
+import { createHash, randomUUID } from 'node:crypto';
+import { constants, createReadStream, createWriteStream } from 'node:fs';
+import { access, chmod, copyFile, lstat, mkdir, readFile, readdir, readlink, realpath, rename, unlink, writeFile } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
+import { createGunzip } from 'node:zlib';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
@@ -21,6 +22,8 @@ const checkedManifests = ['BUILD_ID', 'build-manifest.json', 'app-build-manifest
   'routes-manifest.json', 'prerender-manifest.json'];
 const migrations = ['0000_parched_betty_ross.sql', '0001_handy_robbie_robertson.sql'];
 const shaPattern = /^[a-f0-9]{40}$/;
+const archiveLimits = Object.freeze({ maximumMembers: 50000,
+  maximumCompressedBytes: 1024 ** 3, maximumExpandedBytes: 2 * 1024 ** 3 });
 
 function inside(parent, child) {
   const relative = path.relative(parent, child);
@@ -204,26 +207,84 @@ function prohibitedEntry(relative) {
     /\.(?:sqlite|sqlite3|db|pem|key)(?:-wal|-shm)?$/iu.test(name));
 }
 
-async function packageManifest(directory, relative = '') {
+/** npm .bin file links become ordinary files; directories/foreign links are refused. */
+export async function materializeDependencyFiles(directory) {
+  const root = path.resolve(directory);
+  if (await realpath(root) !== root) throw new Error('The isolated package root cannot be a symlink.');
+  let materializedSymlinks = 0, materializedHardlinks = 0;
+  async function replaceWithRegularFile(filename, source, expected) {
+    const temporary = path.join(path.dirname(filename), `.hirehire-materialize-${randomUUID()}`);
+    try {
+      await copyFile(source, temporary, constants.COPYFILE_EXCL);
+      await chmod(temporary, expected.mode & 0o777);
+      const copied = await lstat(temporary), current = await lstat(source);
+      if (!copied.isFile() || copied.nlink !== 1 || current.dev !== expected.dev ||
+        current.ino !== expected.ino || current.size !== expected.size || !current.isFile()) {
+        throw new Error('A dependency changed while its link was materialized.');
+      }
+      await rename(temporary, filename);
+    } finally { await unlink(temporary).catch(error => { if (error.code !== 'ENOENT') throw error; }); }
+  }
+  async function walk(filename) {
+    const info = await lstat(filename);
+    if (info.isSymbolicLink()) {
+      const target = await readlink(filename), resolved = await realpath(filename);
+      if (path.isAbsolute(target) || !inside(root, resolved)) throw new Error('A dependency link escaped the isolated package.');
+      const targetInfo = await lstat(resolved);
+      if (!targetInfo.isFile() || targetInfo.isSymbolicLink()) throw new Error('Only dependency links to regular files can be materialized.');
+      await replaceWithRegularFile(filename, resolved, targetInfo); materializedSymlinks++;
+    } else if (info.isDirectory()) {
+      for (const name of (await readdir(filename)).sort()) await walk(path.join(filename, name));
+    } else if (info.isFile()) {
+      if (info.nlink > 1) { await replaceWithRegularFile(filename, filename, info); materializedHardlinks++; }
+      else if (info.nlink !== 1) throw new Error('A dependency has an invalid file link count.');
+    } else throw new Error('A dependency contains a device, socket or unsupported entry.');
+  }
+  const dependencies = path.join(root, 'node_modules');
+  const dependencyInfo = await lstat(dependencies);
+  if (!dependencyInfo.isDirectory() || dependencyInfo.isSymbolicLink()) throw new Error('The dependency root must be an ordinary directory.');
+  await walk(dependencies);
+  return { materializedSymlinks, materializedHardlinks };
+}
+
+async function packageManifest(directory, relative = '', budget = { members: 1, fileBytes: 0 }) {
   const entries = [];
   for (const name of (await readdir(path.join(directory, relative))).sort()) {
+    if (++budget.members > archiveLimits.maximumMembers) throw new Error('The archive member limit was exceeded.');
     const filename = relative ? `${relative}/${name}` : name;
     if (prohibitedEntry(filename)) throw new Error('A forbidden data, credential or runtime-state path entered the package.');
     const absolute = path.join(directory, filename), info = await lstat(absolute);
-    if (info.isSymbolicLink()) {
-      const target = await readlink(absolute);
-      if (path.isAbsolute(target) || !inside(directory, await realpath(absolute))) throw new Error('A dependency symlink escaped the package.');
-      entries.push({ path: filename, type: 'symlink', target,
-        sha256: createHash('sha256').update(target).digest('hex') });
-    } else if (info.isDirectory()) entries.push(...await packageManifest(directory, filename));
-    else if (info.isFile()) entries.push({ path: filename, type: 'file', bytes: info.size, sha256: await sha256(absolute) });
+    if (info.isSymbolicLink()) throw new Error('The final package must not contain symbolic links.');
+    if (info.isDirectory()) entries.push(...await packageManifest(directory, filename, budget));
+    else if (info.isFile()) {
+      if (info.nlink !== 1) throw new Error('The final package must not contain hardlinked files.');
+      budget.fileBytes += info.size;
+      if (!Number.isSafeInteger(budget.fileBytes) || budget.fileBytes > archiveLimits.maximumExpandedBytes) {
+        throw new Error('The expanded archive file budget was exceeded.');
+      }
+      entries.push({ path: filename, type: 'file', bytes: info.size, sha256: await sha256(absolute) });
+    }
     else throw new Error('A runtime package entry has an unsupported type.');
   }
   return entries;
 }
 
+async function expandedArchiveBytes(archivePath) {
+  const source = createReadStream(archivePath), decoder = createGunzip();
+  source.on('error', error => decoder.destroy(error));
+  source.pipe(decoder);
+  let bytes = 0;
+  try {
+    for await (const chunk of decoder) {
+      bytes += chunk.length;
+      if (bytes > archiveLimits.maximumExpandedBytes) throw new Error('The decompressed tar budget was exceeded.');
+    }
+  } finally { source.destroy(); decoder.destroy(); }
+  return bytes;
+}
+
 export async function packageNodeRelease({ candidate, buildReceipt, releaseId }) {
-  if (process.platform !== 'linux') throw new Error('Build a Linux runtime artifact in the Linux execution environment.');
+  if (process.platform !== 'linux' || process.arch !== 'x64') throw new Error('Build this runtime artifact in the Linux x64 execution environment.');
   if (!shaPattern.test(candidate || '')) throw new Error('--candidate requires the full accepted Git SHA.');
   if (!/^[a-z0-9][a-z0-9-]{0,90}$/u.test(releaseId || '')) throw new Error('--release-id must be a simple task-local name.');
   const identity = await gitIdentity();
@@ -266,6 +327,7 @@ export async function packageNodeRelease({ candidate, buildReceipt, releaseId })
   await command('npm', ['ci', '--omit=dev', '--include=optional', '--ignore-scripts', '--no-audit', '--no-fund',
     '--registry=https://registry.npmjs.org'], { cwd: destination,
     env: npmEnvironment(path.join(stagingRoot, 'npm-cache')), logPath: dependencyLog });
+  const linkMaterialization = await materializeDependencyFiles(destination);
   // No lifecycle scripts or dependency upgrades. Native optional packages come
   // from the integrity-locked registry tarballs for this exact Linux platform.
   const header = process.report?.getReport().header;
@@ -282,11 +344,14 @@ export async function packageNodeRelease({ candidate, buildReceipt, releaseId })
     dependencyInstall: 'npm ci --omit=dev --include=optional --ignore-scripts --no-audit --no-fund',
     dependencyRegistry: 'https://registry.npmjs.org', lockfileSha256: await sha256(path.join(destination, 'package-lock.json')),
     managementEnabledByDefault: false, writesEnabledByDefault: false, releaseChannelByDefault: 'preview', deployed: false,
-    runtimeEntry: 'scripts/node-server.mjs', dataIncluded: false, environmentIncluded: false };
+    runtimeEntry: 'scripts/node-server.mjs', dataIncluded: false, environmentIncluded: false,
+    archiveLimits, ...linkMaterialization, packageFileTypes: ['regular-file', 'directory'] };
   await writeFile(path.join(destination, 'release-provenance.json'), `${JSON.stringify(provenance, null, 2)}\n`, { mode: 0o644 });
-  const files = await packageManifest(destination);
+  const packageBudget = { members: 1, fileBytes: 0 };
+  const files = await packageManifest(destination, '', packageBudget);
   const manifestPath = path.join(stagingRoot, 'package-manifest.json');
-  await writeFile(manifestPath, `${JSON.stringify({ schemaVersion: 1, ...provenance, files }, null, 2)}\n`, { mode: 0o600 });
+  await writeFile(manifestPath, `${JSON.stringify({ schemaVersion: 1, ...provenance,
+    archiveMemberCount: packageBudget.members, expandedFileBytes: packageBudget.fileBytes, files }, null, 2)}\n`, { mode: 0o600 });
   // Prevent a concurrent source/build edit being hidden by dependency installation.
   const finalIdentity = await gitIdentity(), finalInputs = await fingerprintBuildInputs(), finalBuild = await buildIdentity();
   if (!finalIdentity.sourceClean || finalIdentity.sourceCommit !== candidate ||
@@ -295,11 +360,14 @@ export async function packageNodeRelease({ candidate, buildReceipt, releaseId })
   }
   const archivePath = path.join(stagingRoot, `hirehire-node-${candidate.slice(0, 12)}-${process.platform}-${process.arch}.tar.gz`);
   await command('tar', ['--sort=name', '--mtime=@0', '--owner=0', '--group=0', '--numeric-owner',
-    '--format=posix', '--pax-option=delete=atime,delete=ctime', '-czf', archivePath, '-C', destination, '.']);
+    '--format=posix', '--pax-option=delete=atime,delete=ctime', '--hard-dereference', '-czf', archivePath, '-C', destination, '.']);
   const archiveInfo = await regularFile(archivePath);
+  if (archiveInfo.size > archiveLimits.maximumCompressedBytes) throw new Error('The compressed archive budget was exceeded.');
+  const uncompressedTarBytes = await expandedArchiveBytes(archivePath);
   const result = { schemaVersion: 1, kind: 'hirehire-node-package-receipt', ...provenance,
     releaseId, archivePath, archiveBytes: archiveInfo.size, archiveSha256: await sha256(archivePath),
     manifestPath, manifestSha256: await sha256(manifestPath), packageEntryCount: files.length,
+    archiveMemberCount: packageBudget.members, expandedFileBytes: packageBudget.fileBytes, uncompressedTarBytes,
     createdAt: new Date().toISOString(), note: 'Local artifact only; no production configuration, publish or DNS operation performed.' };
   await writeFile(path.join(stagingRoot, 'package-receipt.json'), `${JSON.stringify(result, null, 2)}\n`, { mode: 0o600 });
   return result;

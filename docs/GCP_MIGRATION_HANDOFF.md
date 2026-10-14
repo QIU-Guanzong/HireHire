@@ -4,7 +4,7 @@ This is a local migration candidate for the owner's existing GCP server and `htt
 
 ## Runtime and storage
 
-The runtime is the existing locked Next.js version on Linux Node.js ≥22.13, started through `scripts/node-server.mjs`. The built-in SQLite must also contain the WAL-reset fix: version ≥3.51.3 or the reviewed fixed backports 3.50.7/3.44.6; startup rejects an unpatched version. The cloud runtime's isolated in-memory read reported SQLite `3.53.3`; verify the actual receiving Node binary, not merely its major version. [SQLite WAL-reset release notes](https://sqlite.org/wal.html#walresetbug).
+The runtime is the existing locked Next.js version on Linux Node.js ≥22.13, started through `scripts/node-server.mjs`. The selected production compatibility baseline is official Linux x64 Node **22.23.3**, with built-in SQLite **3.51.3**; its official archive checksum was verified before isolated cloud execution. The built-in SQLite must contain the WAL-reset fix: version ≥3.51.3 or the reviewed fixed backports 3.50.7/3.44.6; startup rejects an unpatched version. The original cloud executor is Node 24.19.0 / SQLite 3.53.3; verify the actual receiving Node binary, not merely its major version. [SQLite WAL-reset release notes](https://sqlite.org/wal.html#walresetbug).
 
 The custom server owns two distinct transport channels: public HTTP bound to `127.0.0.1`, and an optional private Unix management socket. It sets a process-local request context before handing a request to Next. Headers, cookies, request bodies and URL parameters do not select the management channel or authenticate a person.
 
@@ -68,7 +68,7 @@ node scripts/package-node-release.mjs \
 
 The script refuses a dirty checkout, a different HEAD, changed inputs/build bytes, unsupported dependency sources or a reused output directory. It assembles only allowlisted runtime files under ignored `work/gcp-migration/<release-id>/runtime`, then installs production dependencies there with the existing lockfile using `npm ci --omit=dev --include=optional --ignore-scripts --no-audit --no-fund`. Only HTTPS `registry.npmjs.org` tarballs with locked integrity are accepted. Operator npm credentials and app environment variables are not passed to installation; lifecycle scripts do not run. Linux native optional dependencies come from the locked registry packages. Confirm that the receiving VM has the package's Linux architecture, compatible libc and supported Node version before using it; the receipt also records the built-in SQLite version for comparison.
 
-Deliver the archive **and** the external `package-manifest.json` and `package-receipt.json` through an available native file attachment/download channel or an authorized GitHub artifact. The receipt records the full source SHA/tree, actual build source, build ID, input digest, lockfile hash, architecture, archive SHA-256 and bytes. The manifest covers every packaged regular file and dependency symlink, including `release-provenance.json`; it is external so it can record the archive's complete file list without a self-referential hash. A local filesystem path alone is not a usable handoff to Air. No archive, upload, actual test count or deployment success is claimed by this document.
+Deliver the archive **and** the external `package-manifest.json` and `package-receipt.json` through an available native file attachment/download channel or an authorized content-addressed transfer to the existing GCP receiver. The receipt records the full source SHA/tree, actual build source, build ID, input digest, lockfile hash, architecture, archive SHA-256 and bytes. Production dependency file links are materialized as independent regular files with executable permissions retained; escaping or directory links and special files are refused. The manifest covers every packaged regular file, including `release-provenance.json`; it is external so it can record the archive's complete file list without a self-referential hash. The tar permits no links/devices, at most 50,000 members, 1 GiB compressed and 2 GiB expanded. A local filesystem path alone is not a usable handoff to Air. No archive, upload, actual test count or deployment success is claimed by this document.
 
 The artifact is a Node release rather than the previous Worker archive. The development Git commit and old Sites publishing commit are distinct provenance; keep both and the original rollback evidence. Extract into a new reviewed release directory, verify archive and manifest hashes, and check packaged HTTP behavior before activation. Do not run another build on Air to recreate candidate bytes.
 
@@ -84,8 +84,8 @@ After=network.target
 
 [Service]
 Type=simple
-User=REVIEWED_SERVICE_USER
-Group=REVIEWED_SERVICE_GROUP
+User=hirehire
+Group=hirehire
 WorkingDirectory=/REVIEWED_RELEASE_DIRECTORY
 Environment=NODE_ENV=production
 Environment=NEXT_TELEMETRY_DISABLED=1
@@ -105,7 +105,7 @@ Keep the environment file root-controlled and private, with no values in the uni
 
 The publishing task owns the existing nginx/TLS integration; no nginx file is created or changed by this candidate. Its public upstream is `127.0.0.1:8038` with the fixed `Host: hire.astock.top`. The management Unix socket must not be included in a public proxy upstream. The approved IAP/SSH tunnel would expose it only on the operator's local `127.0.0.1:8039`, with that exact local Origin.
 
-The selected management path for the operations contract is `/run/hirehire-management/admin.sock`. Provision its parent as mode `0700`, owned by the reviewed non-root service UID; the application creates and verifies its socket as that same UID with mode `0600`. Use `HIREHIRE_MANAGEMENT_SOCKET=/run/hirehire-management/admin.sock` and `HIREHIRE_MANAGEMENT_ORIGIN=http://127.0.0.1:8039`. Do not replace this with a VM listener on TCP 8039. If the existing VM needs a different reviewed path, update the operations contract explicitly rather than opening broader permissions.
+The selected management path for the operations contract is `/run/hirehire-management/admin.sock`. Its reviewed OS owner/group are **hirehire:hirehire**. Provision its parent as mode `0700`, owned by that non-root service UID/group; the application creates and verifies its socket as the same service UID with mode `0600`. Use `HIREHIRE_MANAGEMENT_SOCKET=/run/hirehire-management/admin.sock` and `HIREHIRE_MANAGEMENT_ORIGIN=http://127.0.0.1:8039`. Do not replace this with a VM listener on TCP 8039. If the existing VM needs a different reviewed path, update the operations contract explicitly rather than opening broader permissions.
 
 An approved existing IAP/SSH session can use this forwarding shape (reviewed VM/zone/SSH account placeholders, no credentials):
 
