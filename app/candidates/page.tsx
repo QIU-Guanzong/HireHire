@@ -1,4 +1,6 @@
 import type { Metadata } from 'next';
 import { CandidateCatalog } from '@/components/candidate-catalog';
-export const metadata: Metadata = { title: '搜尋人選', description: '按服務、經驗及工作安排查看公開求職簡介。' };
+import { getLocale } from '@/lib/server-locale';
+import { t } from '@/lib/i18n';
+export async function generateMetadata():Promise<Metadata>{const locale=await getLocale();return {title:t(locale,'搜尋人選'),description:t(locale,'按服務、經驗和工作安排，查看合適的求職簡介。')};}
 export default function CandidatesPage() { return <CandidateCatalog />; }

@@ -4,6 +4,8 @@ import { usePathname } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { ChevronDown, Menu, X } from 'lucide-react';
 import { serviceContent } from '@/lib/service-content';
+import { useLocale } from './locale-provider';
+import { t } from '@/lib/i18n';
 import './site-navigation.css';
 
 type GroupId = 'candidates' | 'services';
@@ -45,6 +47,7 @@ const directLinks: NavigationLink[] = [
 ];
 
 export default function SiteNavigation() {
+  const { locale } = useLocale();
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [activeGroup, setActiveGroup] = useState<GroupId | null>(null);
@@ -120,7 +123,7 @@ export default function SiteNavigation() {
   };
 
   const currentPage = (href: string) => !href.includes('?') && !href.includes('#') && pathname === href;
-  const renderLink = (link: NavigationLink) => <a href={link.href} aria-current={currentPage(link.href) ? 'page' : undefined} onClick={resetAfterNavigation}>{link.label}</a>;
+  const renderLink = (link: NavigationLink) => <a href={link.href} aria-current={currentPage(link.href) ? 'page' : undefined} onClick={resetAfterNavigation}>{t(locale, link.label)}</a>;
 
   return <div className="navigation-shell" ref={shell} onKeyDown={handleEscape} onFocusCapture={event => {
     if (event.target instanceof HTMLElement) lastFocusedElement.current = event.target;
@@ -130,12 +133,12 @@ export default function SiteNavigation() {
     } else if (!(event.relatedTarget instanceof Node) || !shell.current?.contains(event.relatedTarget)) resetAfterNavigation();
   }}>
     <div className="site-width hire-navigation-inner">
-      <button ref={mobileTrigger} type="button" className="hire-menu-toggle" aria-label={mobileOpen ? '關閉主導覽' : '開啟主導覽'} aria-expanded={mobileOpen} aria-controls="primary-navigation" onClick={() => {
+      <button ref={mobileTrigger} type="button" className="hire-menu-toggle" aria-label={t(locale, mobileOpen ? '關閉主導覽' : '開啟主導覽')} aria-expanded={mobileOpen} aria-controls="primary-navigation" onClick={() => {
         if (mobileOpen) closeNavigation();
         else { setMobileOpen(true); setActiveGroup(null); setActiveSection(null); }
-      }}>{mobileOpen ? <X size={19} aria-hidden="true" /> : <Menu size={19} aria-hidden="true" />}選單</button>
+      }}>{mobileOpen ? <X size={19} aria-hidden="true" /> : <Menu size={19} aria-hidden="true" />}{t(locale, '選單')}</button>
 
-      <nav ref={navigation} id="primary-navigation" aria-label="主導覽" className={'hire-primary-navigation' + (mobileOpen ? ' is-open' : '')}>
+      <nav ref={navigation} id="primary-navigation" aria-label={t(locale, '主導覽')} className={'hire-primary-navigation' + (mobileOpen ? ' is-open' : '')}>
         {groups.map(group => <div key={group.id} className={'hire-nav-group' + (group.paths.some(path => pathname === path || pathname.startsWith(path + '/')) ? ' is-current-section' : '')} onBlur={event => {
           if (activeGroup === group.id && (!(event.relatedTarget instanceof Node) || !event.currentTarget.contains(event.relatedTarget))) {
             setActiveGroup(null);
@@ -143,23 +146,23 @@ export default function SiteNavigation() {
           }
         }}>
           <div className="hire-nav-top-row">
-            <a href={group.href} className="hire-nav-link" aria-current={currentPage(group.href) || (group.id === 'candidates' && pathname.startsWith('/candidates/')) ? 'page' : undefined} onClick={resetAfterNavigation}>{group.label}</a>
-            <button ref={element => { groupTriggers.current[group.id] = element; }} type="button" className="hire-nav-disclosure" aria-label={group.label + '選單'} aria-expanded={activeGroup === group.id} aria-controls={'navigation-' + group.id} onClick={() => {
+            <a href={group.href} className="hire-nav-link" aria-current={currentPage(group.href) || (group.id === 'candidates' && pathname.startsWith('/candidates/')) ? 'page' : undefined} onClick={resetAfterNavigation}>{t(locale, group.label)}</a>
+            <button ref={element => { groupTriggers.current[group.id] = element; }} type="button" className="hire-nav-disclosure" aria-label={t(locale, group.label) + (locale === 'en' ? ' menu' : '選單')} aria-expanded={activeGroup === group.id} aria-controls={'navigation-' + group.id} onClick={() => {
               setActiveGroup(activeGroup === group.id ? null : group.id);
               setActiveSection(null);
             }}><ChevronDown size={16} aria-hidden="true" /></button>
           </div>
           <ul id={'navigation-' + group.id} className="hire-nav-panel" hidden={activeGroup !== group.id}>
             {group.items.map(item => 'href' in item ? <li key={item.href}>{renderLink(item)}</li> : <li key={item.id} className="hire-nav-section">
-              <button ref={element => { sectionTriggers.current[item.id] = element; }} type="button" className="hire-nav-subtoggle" aria-expanded={activeSection === item.id} aria-controls={'navigation-' + item.id} onClick={() => setActiveSection(activeSection === item.id ? null : item.id)}>{item.label}<ChevronDown size={15} aria-hidden="true" /></button>
-              <span className="hire-nav-subheading">{item.label}</span>
+              <button ref={element => { sectionTriggers.current[item.id] = element; }} type="button" className="hire-nav-subtoggle" aria-expanded={activeSection === item.id} aria-controls={'navigation-' + item.id} onClick={() => setActiveSection(activeSection === item.id ? null : item.id)}>{t(locale, item.label)}<ChevronDown size={15} aria-hidden="true" /></button>
+              <span className="hire-nav-subheading">{t(locale, item.label)}</span>
               <ul id={'navigation-' + item.id} className="hire-nav-sublist" hidden={activeSection !== item.id}>{item.links.map(link => <li key={link.href}>{renderLink(link)}</li>)}</ul>
             </li>)}
           </ul>
         </div>)}
-        {directLinks.map(link => <a key={link.href} href={link.href} className="hire-nav-link hire-nav-direct" aria-current={currentPage(link.href) ? 'page' : undefined} onClick={resetAfterNavigation}>{link.label}</a>)}
+        {directLinks.map(link => <a key={link.href} href={link.href} className="hire-nav-link hire-nav-direct" aria-current={currentPage(link.href) ? 'page' : undefined} onClick={resetAfterNavigation}>{t(locale, link.label)}</a>)}
       </nav>
-      <a href="/employer" className="hire-nav-register" aria-current={currentPage('/employer') ? 'page' : undefined} onClick={resetAfterNavigation}>僱主登記</a>
+      <a href="/employer" className="hire-nav-register" aria-current={currentPage('/employer') ? 'page' : undefined} onClick={resetAfterNavigation}>{t(locale, '僱主登記')}</a>
     </div>
   </div>;
 }
