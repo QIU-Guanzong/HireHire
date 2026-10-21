@@ -5,7 +5,7 @@ import { ArrowLeft, ArrowRight, Check, CheckCircle2, ChevronRight } from 'lucide
 import { allFields, isFieldVisible, kindLabel, parseWorkExperiences, sections, services, type Field, type IntakeData, type IntakeKind } from '@/lib/fields';
 import { formatWorkExperience, type CandidatePublic, type WorkExperience } from '@/lib/platform-types';
 import { useLocale } from './locale-provider';
-import { t, type Locale } from '@/lib/i18n';
+import { intakeResponseError, t, type Locale } from '@/lib/i18n';
 
 type Attempt = { key: string; fingerprint: string };
 type PhotoAttachment = { id: string; token: string };
@@ -259,11 +259,17 @@ export default function IntakeForm({ kind }: { kind: IntakeKind }) {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...envelope, idempotencyKey: attemptRef.current!.key, website: websiteRef.current?.value ?? '' }),
       });
-      const result = await response.json().catch(() => ({})) as ApiResult;
+      const parsed: unknown = await response.json().catch(() => null);
+      const result = (parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {}) as ApiResult;
       if (!response.ok || !result.reference) {
         confirmedFailure = response.status >= 400 && response.status < 500 && ![408,425].includes(response.status);
-        if (result.fields) setErrors(result.fields);
-        throw new Error(result.error || '未能確認提交結果。資料仍在此頁，請重試。');
+        if (result.fields && typeof result.fields === 'object' && !Array.isArray(result.fields)) {
+          const knownFields = new Set([...allFields(kind).map(field => field.name), 'consent', 'photo', 'candidateIds']);
+          const localErrors = validateIntakeFields(kind, data, allFields(kind), true);
+          setErrors(Object.fromEntries(Object.entries(result.fields).filter(([name]) => knownFields.has(name))
+            .map(([name, message]) => [name, localErrors[name] || intakeResponseError(message, '請檢查此欄位。')])));
+        }
+        throw new Error(intakeResponseError(result.error));
       }
       setReference(result.reference);
       try { localStorage.removeItem(draftKey(kind)); } catch { /* Optional storage. */ }
@@ -273,7 +279,7 @@ export default function IntakeForm({ kind }: { kind: IntakeKind }) {
       requestAnimationFrame(() => titleRef.current?.focus());
     } catch (error) {
       if (requestStarted) setPendingSubmission(!confirmedFailure);
-      setSubmitError(error instanceof Error ? error.message : '暫時無法提交，請重試。');
+      setSubmitError(intakeResponseError(error instanceof Error ? error.message : null));
       requestAnimationFrame(() => errorRef.current?.focus());
     } finally { busyRef.current = false; setSubmitting(false); }
   };
