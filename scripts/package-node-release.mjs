@@ -6,6 +6,7 @@ import { createGunzip } from 'node:zlib';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
+import { compiledSource } from './build-source.mjs';
 
 // Packaging is separate from building, testing and deploying. This entry never
 // starts a service, changes the checkout, copies live storage or reads secrets.
@@ -107,6 +108,9 @@ async function buildIdentity() {
   }
   const buildId = (await readFile(path.join(projectRoot, '.next/BUILD_ID'), 'utf8')).trim();
   if (!buildId || buildId.length > 200 || /[\s/\\]/u.test(buildId)) throw new Error('The Next build ID is invalid.');
+  const required = JSON.parse(await readFile(path.join(projectRoot, '.next/required-server-files.json'), 'utf8'));
+  const source = compiledSource(required.config?.env, buildId);
+  if (!source) throw new Error('Build source is unknown or does not match the actual Next build ID; rebuild from a clean commit.');
   await access(path.join(projectRoot, '.next/server'));
   await access(path.join(projectRoot, '.next/static'));
   const runtimeBuildFiles = [];
@@ -124,7 +128,7 @@ async function buildIdentity() {
   }
   runtimeBuildFiles.sort((a, b) => a.path.localeCompare(b.path, 'en'));
   const runtimeBuildHash = createHash('sha256').update(JSON.stringify(runtimeBuildFiles)).digest('hex');
-  return { buildId, manifestHashes, runtimeBuildHash };
+  return { buildId, compiledSource: source, manifestHashes, runtimeBuildHash };
 }
 
 function taskLocalPath(value) {
@@ -144,11 +148,19 @@ export async function recordBuildReceipt(filename, { builtSourceCommit } = {}) {
     JSON.stringify(previous.manifestHashes) !== JSON.stringify(build.manifestHashes))) {
     throw new Error('The saved build inputs or outputs changed; use a new receipt after a newly validated build.');
   }
-  const builtCommit = builtSourceCommit || previous?.builtSourceCommit || identity.sourceCommit;
+  const builtCommit = builtSourceCommit || previous?.builtSourceCommit || build.compiledSource.commit;
   if (!shaPattern.test(builtCommit)) throw new Error('builtSourceCommit must be a full Git SHA.');
+  if (!identity.sourceClean || builtCommit !== build.compiledSource.commit ||
+    await command('git', ['rev-parse', `${builtCommit}^{tree}`]) !== build.compiledSource.tree) {
+    throw new Error('Recorded source must match the clean, build-injected Git identity.');
+  }
+  const changedInputs = await command('git', ['diff', '--name-only', builtCommit, identity.sourceCommit]);
+  if (changedInputs.split('\n').filter(Boolean).some(name => !excludedBuildInput(name))) {
+    throw new Error('Source inputs changed since the compiled commit; rebuild before recording.');
+  }
   await command('git', ['merge-base', '--is-ancestor', builtCommit, identity.sourceCommit]);
   const receipt = { schemaVersion: 1, kind: 'hirehire-node-build', ...identity,
-    builtSourceCommit: builtCommit, builtSourceClean: previous?.builtSourceClean ?? identity.sourceClean,
+    builtSourceCommit: builtCommit, builtSourceClean: true,
     builtAt: previous?.builtAt || new Date().toISOString(),
     recordedAt: new Date().toISOString(), ...inputs, ...build,
     note: 'Recorded after a build by the operator; this records bytes and is not a test or deployment result.' };
@@ -309,6 +321,10 @@ export async function packageNodeRelease({ candidate, buildReceipt, releaseId })
     throw new Error('Build receipt does not match the clean candidate and current build bytes.');
   }
   if (!shaPattern.test(receipt.builtSourceCommit || '')) throw new Error('The build source provenance is missing.');
+  if (receipt.builtSourceCommit !== build.compiledSource.commit || !receipt.builtSourceClean ||
+    JSON.stringify(receipt.compiledSource) !== JSON.stringify(build.compiledSource)) {
+    throw new Error('The package source label does not match the recorded actual build.');
+  }
   await command('git', ['merge-base', '--is-ancestor', receipt.builtSourceCommit, candidate]);
   await validateLock();
   const stagingRoot = path.join(outputRoot, releaseId);
@@ -317,7 +333,7 @@ export async function packageNodeRelease({ candidate, buildReceipt, releaseId })
   await mkdir(stagingRoot, { mode: 0o700 });
   const destination = path.join(stagingRoot, 'runtime');
   await mkdir(destination, { mode: 0o755 });
-  for (const relative of ['package.json', 'package-lock.json', 'next.config.mjs', 'scripts/node-server.mjs', 'scripts/node-data-backup.mjs',
+  for (const relative of ['package.json', 'package-lock.json', 'next.config.mjs', 'scripts/build-source.mjs', 'scripts/node-server.mjs', 'scripts/node-data-backup.mjs',
     'docs/GCP_MIGRATION_HANDOFF.md', ...migrations.map(name => `drizzle/${name}`)]) await copyRegular(relative, destination);
   for (const name of (await readdir(path.join(projectRoot, 'lib/node'))).sort()) {
     if (name.endsWith('.mjs')) await copyRegular(`lib/node/${name}`, destination);

@@ -245,9 +245,16 @@
 }
 
 .candidate-catalog-page .candidate-card-facts > div {
-  grid-template-columns: 67px minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
   gap: 8px;
   margin: 5px 0;
+}
+
+.candidate-catalog-page .candidate-card-facts dt,
+.candidate-catalog-page .candidate-card-facts dd {
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .candidate-catalog-page .candidate-card-facts dd {
@@ -535,7 +542,7 @@
   }
 
   .candidate-catalog-page .candidate-card-facts > div {
-    grid-template-columns: 65px minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
     gap: 6px;
   }
 
