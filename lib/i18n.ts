@@ -182,6 +182,8 @@ const english: Record<string, string> = {
   '期望薪金：高至低': 'Expected salary: high to low', '年齡：小至大': 'Age: low to high', '年齡：大至小': 'Age: high to low',
   '18–29歲': '18–29 years', '30–39歲': '30–39 years', '40–49歲': '40–49 years', '50–59歲': '50–59 years', '60歲或以上': '60 years or above',
   '暫時未能載入人選，請再試一次。': 'Candidates could not be loaded. Try again.', '未能讀取人選，請重試。': 'Candidates could not be loaded. Try again.',
+  '可逐項移除上方條件，或清除所有條件再查看人選。': 'Remove individual filters above, or clear all filters to browse candidates.',
+  '已套用篩選條件': 'Applied filters', '人選分頁': 'Candidate pages',
   '暫時沒有符合條件的人選': 'No candidates match these filters', '暫時未有公開人選': 'No public candidates yet',
   '提交服務需要': 'Submit service needs', '正在讀取人選資料…': 'Loading candidate details…', '此人選目前未能選擇': 'This candidate is currently unavailable',
   '未能讀取已選人選，請重試。': 'Selected candidates could not be loaded. Try again.', '部分人選目前未能選擇，請移除或重新選擇。': 'Some selected candidates are unavailable. Remove or select them again.',

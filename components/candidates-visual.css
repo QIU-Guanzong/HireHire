@@ -245,9 +245,16 @@
 }
 
 .candidate-catalog-page .candidate-card-facts > div {
-  grid-template-columns: 67px minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
   gap: 8px;
   margin: 5px 0;
+}
+
+.candidate-catalog-page .candidate-card-facts dt,
+.candidate-catalog-page .candidate-card-facts dd {
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .candidate-catalog-page .candidate-card-facts dd {
@@ -337,7 +344,7 @@
 }
 
 .candidate-catalog-page .candidate-empty {
-  padding: 58px 30px;
+  padding: 36px 30px;
   border-color: var(--line);
   border-top: 5px solid var(--sun);
   border-radius: 14px;
@@ -497,7 +504,7 @@
   }
 
   .candidate-catalog-page .candidate-empty {
-    padding: 40px 22px;
+    padding: 28px 22px;
   }
 
   .candidate-catalog-page .candidate-empty h1,
@@ -535,7 +542,7 @@
   }
 
   .candidate-catalog-page .candidate-card-facts > div {
-    grid-template-columns: 65px minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
     gap: 6px;
   }
 
@@ -567,4 +574,23 @@
   .candidate-catalog-page .button:active {
     transform: none;
   }
+}
+
+/* Empty results keep the employer task prominent without hiding personal lists. */
+.candidate-catalog-page.has-no-results .candidate-utility a {
+  padding: 4px 2px;
+  border-color: transparent;
+  background: transparent;
+  font-size: 12px;
+  font-weight: 400;
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+.candidate-catalog-page .candidate-status:empty { min-height: 0; margin: 0; }
+.candidate-catalog-page .candidate-empty { margin-top: 18px; }
+.candidate-catalog-page .candidate-empty-actions { display: flex; justify-content: center; flex-wrap: wrap; gap: 12px; }
+.candidate-catalog-page .candidate-empty-actions .button,
+.candidate-catalog-page .candidate-empty > .candidate-text-link { min-height: 44px; }
+@media (max-width: 760px) {
+  .candidate-catalog-page .candidate-empty-actions { flex-direction: column; }
 }
