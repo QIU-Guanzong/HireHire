@@ -1,6 +1,11 @@
 export type Locale = 'zh-Hant' | 'en';
 
 const english: Record<string, string> = {
+  '最快可開始日期': 'Earliest start date', '服務地區': 'Service area',
+  '例如2位，分別3歲及7歲；沒有可留空。': 'For example, 2 children aged 3 and 7. Leave blank if none.',
+  '例如星期一至六，上午8時至下午6時。': 'For example, Monday to Saturday, 8am to 6pm.',
+  '是': 'Yes', '否': 'No', '同意公開': 'Agreed to a public profile', '不公開': 'Keep private',
+  '資料提交暫未開放，請稍後再試。': 'Registration is not open yet. Please try again later.',
   '家合僱傭': 'Jiahe Home Services',
   '家傭 · 陪月 · 家居照顧': 'Domestic helpers · Postnatal care · Home support',
   '家傭 · 陪月 · 長者照顧 · 家居服務': 'Domestic helpers · Postnatal care · Elder care · Home services',
@@ -228,6 +233,8 @@ export function t(locale: Locale, text: string): string {
   if (age) return `${age[1]} years old`;
   const work = text.match(/^工作(\d+)$/);
   if (work) return `Job ${work[1]}`;
+  const experienceCount = text.match(/^最多8份，目前(\d+)份。$/);
+  if (experienceCount) return `Up to 8 entries. Currently ${experienceCount[1]}.`;
   const unavailable = text.match(/^(\d+)位人選暫未能查看資料。$/);
   if (unavailable) return `${unavailable[1]} ${unavailable[1] === '1' ? 'candidate is' : 'candidates are'} temporarily unavailable.`;
   const saved = text.match(/^(\d+)位已收藏人選$/);
