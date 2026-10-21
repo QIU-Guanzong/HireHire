@@ -1,4 +1,6 @@
 import type { Metadata } from 'next';
 import { CandidateCollection } from '@/components/candidate-collection';
-export const metadata: Metadata = { title: '已收藏人選' };
+import { getLocale } from '@/lib/server-locale';
+import { t } from '@/lib/i18n';
+export async function generateMetadata():Promise<Metadata>{const locale=await getLocale();return {title:t(locale,'已收藏人選')};}
 export default function SavedPage() { return <CandidateCollection mode="saved" />; }

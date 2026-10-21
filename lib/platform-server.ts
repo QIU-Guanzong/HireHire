@@ -1,4 +1,4 @@
-import { env } from 'cloudflare:workers';
+import { env } from './runtime';
 import { allFields, districts, services, type IntakeData, type IntakeRecord } from './fields';
 import { ApiError, assertKeys, db, getRecord, safeText, validateWorkExperiences } from './server';
 import { candidateAgeRanges, candidateTypes, matchStages, publicationStates, type CandidatePublic, type CandidatePublication, type MatchRecord, type SiteInfo } from './platform-types';

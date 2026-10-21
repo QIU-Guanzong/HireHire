@@ -1,0 +1,152 @@
+/* First visual review: public home/catalog and shared navigation only. */
+body:has(.home-page), body:has(.candidate-catalog-page), .site-header {
+  --paper: #fffefb;
+  --ink: #302a32;
+  --muted: #736c75;
+  --line: #e7e1e8;
+  --accent: #60406b;
+  --accent-strong: #492c53;
+  --sun: #efe39c;
+  --sun-soft: #fcf8e5;
+  --lavender: #f5f0f6;
+}
+body:has(.home-page), body:has(.candidate-catalog-page) { background: var(--paper); }
+.home-page, .candidate-catalog-page, .site-header { color: var(--ink); }
+.home-page :focus-visible, .candidate-catalog-page :focus-visible, .site-header :focus-visible { outline-color: var(--accent); }
+.home-page .primary, .candidate-catalog-page .primary { background: var(--accent); border-color: var(--accent); color: white; }
+.home-page .primary:hover, .candidate-catalog-page .primary:hover { background: var(--accent-strong); border-color: var(--accent-strong); }
+.home-page .secondary, .candidate-catalog-page .secondary { color: var(--accent); border-color: var(--accent); }
+.home-page .secondary:hover, .candidate-catalog-page .secondary:hover { background: var(--lavender); }
+.site-header .header-inner { height: 78px; }
+.site-header .brand { color: var(--accent); font-size: 25px; gap: 12px; letter-spacing: .025em; }
+.site-header .brand-mark { width: 44px; height: 46px; background: var(--sun); color: var(--accent); border-radius: 11px 11px 3px 11px; font-weight: 600; }
+.site-header .brand small { color: var(--muted); font-size: 11px; letter-spacing: .055em; }
+.site-header .brand-wordmark { display: grid; grid-template-columns: auto auto; column-gap: 10px; align-items: center; }
+.site-header .brand-name { line-height: 1.3; }
+.site-header .brand-wordmark > small { grid-column: 1; line-height: 1.6; }
+.site-header .brand-version { display: flex; align-items: center; gap: 5px; grid-column: 2; grid-row: 1 / 3; font-size: 11px; line-height: 1.3; font-weight: 400; letter-spacing: 0; color: var(--muted); font-variant-numeric: tabular-nums; }
+.site-header .brand-version-mode { display: inline-block; min-width: 3em; }
+.site-header .header-utility { font-size: 13px; gap: 25px; color: var(--accent); }
+.site-header .header-utility a { display: inline-flex; align-items: center; min-width: 44px; min-height: 44px; }
+.site-header .language-switcher { display:inline-flex; flex:0 0 auto; align-items:center; justify-content:center; min-width:3.1em; min-height:38px; padding:0 8px; white-space:nowrap; border:1px solid var(--line); border-radius:4px; color:var(--accent); background:transparent; font:inherit; cursor:pointer; }
+.site-header .language-switcher:hover { background:var(--sun-soft); }
+.site-header .language-switcher:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+.site-header .header-utility a[href="/jobseeker"] { display: none; }
+.site-header .navigation-shell { background: var(--sun); border-top: 0; border-bottom: 0; }
+.site-header .hire-primary-navigation { font-size: 15px; }
+.site-header .hire-nav-group.is-current-section > .hire-nav-top-row::after, .site-header .hire-nav-direct[aria-current="page"]::after { bottom: 0; }
+.site-header .hire-nav-disclosure:hover, .site-header .hire-nav-subtoggle:hover { background: var(--sun-soft); }
+.site-header .hire-nav-disclosure[aria-expanded="true"] { background: var(--sun-soft); }
+.site-header .hire-nav-panel { border-color: var(--line); border-top-color: var(--accent); border-radius: 0 0 10px 10px; box-shadow: 0 12px 24px #302a3212; }
+.site-header .hire-nav-panel a:hover, .site-header .hire-nav-panel a[aria-current="page"] { background: var(--lavender); color: var(--accent); }
+.site-header .hire-nav-register { font-size: 15px; padding-inline: 25px; }
+.site-header .hire-nav-register:hover { background: var(--accent-strong); }
+.home-page .home-search-band { background: var(--sun-soft); border-bottom: 0; }
+.home-page .home-search-layout { grid-template-columns: minmax(0, 1fr) 380px; gap: 20px 40px; padding-block: 42px 34px; align-items: center; }
+.home-page .page-kicker { color: var(--accent); font-size: 13px; letter-spacing: .035em; }
+.home-page .home-search-main .page-kicker { display: flex; align-items: center; gap: 10px; margin-bottom: 18px; }
+.home-page .home-search-main .page-kicker > span { width: 22px; height: 2px; background: var(--accent); }
+.home-page .home-search-main h1 { font-size: clamp(36px, 3.9vw, 51px); font-weight: 700; letter-spacing: -.025em; line-height: 1.38; }
+.home-page .home-search-main h1 > span { color: var(--accent); }
+.home-page .home-lead { font-size: 16px; line-height: 1.9; margin-top: 22px; color: #625b64; }
+.home-page .home-search-links { margin-top: 24px; gap: 24px; font-size: 14px; }
+.home-page .home-search-links a { min-height: 44px; gap: 8px; }
+.home-window-scene { width: 100%; max-width: 400px; justify-self: end; }
+.home-window-scene svg { display: block; width: 100%; height: auto; }
+.home-search-box { grid-column: 1 / -1; padding: 24px 28px 27px; background: white; border: 1px solid #e8dfb2; border-radius: 12px; }
+.home-search-caption { display: flex; align-items: center; gap: 10px; color: var(--accent); }
+.home-search-caption h2 { font-size: 17px; font-weight: 600; }
+.home-page .home-search-form--extended { grid-template-columns: 1fr 1fr 1fr auto; gap: 20px; margin-top: 16px; }
+.home-page .home-search-form label { color: var(--ink); font-size: 14px; font-weight: 500; }
+.home-page .home-search-form select { border-color: #c9becf; border-radius: 6px; min-height: 50px; padding: 10px 12px; font-size: 15px; margin-top: 7px; }
+.home-page .home-search-form .button { min-height: 50px; padding-inline: 28px; font-size: 15px; border-radius: 6px; }
+.home-page .home-job-entry { display: flex; align-items: center; gap: 24px; border: 0; border-bottom: 1px solid var(--line); padding: 25px 0; margin: 0; }
+.home-page .home-job-entry h2 { font-size: 17px; }
+.home-page .home-job-entry p { font-size: 14px; margin-top: 5px; }
+.home-page .home-job-entry > a { margin: 0 0 0 auto; min-height: 44px; gap: 14px; font-size: 15px; flex-shrink: 0; }
+.home-page .home-content { padding-block: 48px 48px; }
+.home-page .section-heading { margin-bottom: 23px; }
+.home-page .section-heading h2 { font-size: 29px; font-weight: 600; }
+.home-page .section-heading > a { font-size: 14px; min-height: 44px; }
+.home-page .service-directory { border-top: 0; display: grid; grid-template-columns: 1fr 1fr; column-gap: 44px; }
+.home-page .service-directory > a { grid-template-columns: 48px minmax(0, 1fr) 20px; gap: 0 18px; padding: 21px 0; }
+.service-icon { grid-row: 1 / 3; display: grid; place-items: center; width: 48px; height: 48px; background: var(--sun-soft); border-radius: 12px; color: var(--accent); }
+.home-page .service-icon svg { width: 24px; height: 24px; }
+.home-page .service-directory h3 { font-size: 18px; font-weight: 600; grid-column: 2; }
+.home-page .service-directory p { font-size: 14px; line-height: 1.7; margin-top: 4px; grid-column: 2; }
+.home-page .service-directory > a > svg { grid-column: 3; grid-row: 1 / 3; }
+.home-page .service-directory > a:hover { background: var(--lavender); }
+.home-page .home-process { margin-top: 48px; }
+.home-page .process-strip { border: 0; background: var(--lavender); border-radius: 12px; }
+.home-page .process-strip li { padding: 25px; border-color: #e2d8e5; }
+.home-page .process-strip span { font-size: 13px; color: var(--accent); font-weight: 500; }
+.home-page .process-strip h3 { font-size: 18px; margin: 10px 0 6px; }
+.home-page .process-strip p { font-size: 14px; }
+.home-page .home-bottom-row { margin-top: 35px; padding-top: 0; gap: 25px; }
+.home-page .home-bottom-row h2 { font-size: 20px; }
+.home-page .home-bottom-row p { font-size: 14px; }
+.home-page .home-bottom-row .button { border-radius: 6px; font-size: 15px; }
+.home-page .home-bottom-row > .text-link { display: inline-flex; align-items: center; min-height: 44px; }
+body:has(.home-page) .site-footer, body:has(.candidate-catalog-page) .site-footer { background: var(--lavender); }
+body:has(.home-page) .footer-brand, body:has(.candidate-catalog-page) .footer-brand { color: var(--accent); }
+body:has(.home-page) .site-footer a, body:has(.candidate-catalog-page) .site-footer a { display: inline-flex; align-items: center; min-width: 44px; min-height: 44px; }
+@media (max-width: 950px) {
+  .home-page .home-search-layout { grid-template-columns: minmax(0, 1fr) 285px; gap: 24px; padding-top: 34px; }
+  .home-page .home-search-form--extended { gap: 12px; }
+  .home-page .home-search-form .button { padding-inline: 18px; }
+  .site-header .hire-primary-navigation { font-size: 14px; }
+}
+@media (max-width: 700px) {
+  .site-header .header-utility a[href="/saved"], .site-header .header-utility a[href="/compare"] { display:none; }
+  .site-header .header-inner { height: 70px; }
+  .site-header .brand { font-size: 22px; gap: 9px; }
+  .site-header .brand-mark { width: 36px; height: 40px; font-size: 24px; border-radius: 9px 9px 3px 9px; }
+  .site-header .brand small { font-size: 9px; }
+  .site-header .brand-wordmark { column-gap: 7px; }
+  .site-header .brand-version { flex-direction: column; align-items: flex-start; gap: 2px; font-size: 9px; }
+  .site-header .header-utility { gap: 14px; font-size: 11px; }
+  .site-header .header-utility a:last-child { display: none; }
+  .site-header .hire-menu-toggle { font-size: 14px; color: var(--accent); background: transparent; }
+  .site-header .hire-nav-register { font-size: 14px; padding-inline: 19px; }
+  .site-header .hire-primary-navigation { font-size: 14px; }
+  .site-header .hire-nav-group.is-current-section > .hire-nav-top-row, .site-header .hire-nav-direct[aria-current="page"] { background: var(--sun-soft); }
+  .site-header .hire-nav-panel { box-shadow: none; border-top: 0; border-radius: 0; background: transparent; }
+  .home-page .home-search-layout { grid-template-columns: minmax(0, 1fr); padding-block: 29px 25px; gap: 24px; position: relative; }
+  .home-page .home-search-main { position: relative; z-index: 1; }
+  .home-page .home-search-main h1 { font-size: 34px; line-height: 1.42; }
+  .home-page .home-search-main .page-kicker { font-size: 12px; margin-bottom: 15px; }
+  .home-page .home-lead { font-size: 14px; line-height: 1.9; margin-top: 16px; max-width: 350px; }
+  .home-page .home-search-links { font-size: 13px; justify-content: flex-start; gap: 20px; margin-top: 13px; flex-wrap: wrap; }
+  .home-window-scene { position: absolute; width: 130px; right: 0; top: 19px; opacity: .12; pointer-events: none; }
+  .home-search-box { padding: 20px; border-radius: 10px; }
+  .home-search-caption h2 { font-size: 16px; }
+  .home-page .home-search-form--extended { grid-template-columns: 1fr 1fr; gap: 14px 12px; }
+  .home-page .home-search-form label { font-size: 13px; }
+  .home-page .home-search-form label:last-of-type { grid-column: 1 / -1; }
+  .home-page .home-search-form select { font-size: 15px; }
+  .home-page .home-search-form .button { grid-column: 1 / -1; margin-top: 2px; }
+  .home-page .home-job-entry { padding: 24px 0; align-items: flex-start; flex-direction: column; gap: 13px; }
+  .home-page .home-job-entry h2 { font-size: 17px; }
+  .home-page .home-job-entry p { font-size: 14px; line-height: 1.8; }
+  .home-page .home-job-entry > a { margin: 0; font-size: 14px; min-height: 44px; border: 1px solid var(--line); border-radius: 6px; padding: 8px 15px; }
+  .home-page .home-content { padding-block: 32px 38px; }
+  .home-page .section-heading { gap: 10px; margin-bottom: 10px; }
+  .home-page .section-heading h2 { font-size: 26px; }
+  .home-page .section-heading > a { font-size: 13px; gap: 5px; }
+  .home-page .service-directory { grid-template-columns: 1fr; }
+  .home-page .service-directory > a { padding: 18px 0; gap: 0 15px; }
+  .home-page .service-directory h3 { font-size: 17px; }
+  .home-page .service-directory p { font-size: 14px; }
+  .home-page .home-process { margin-top: 34px; }
+  .home-page .process-strip li { padding: 21px 17px; }
+  .home-page .process-strip h3 { font-size: 16px; }
+  .home-page .process-strip p { font-size: 13px; line-height: 1.8; }
+  .home-page .home-bottom-row { margin-top: 28px; gap: 17px; }
+  .home-page .home-bottom-row h2 { font-size: 19px; }
+  .home-page .home-bottom-row p { font-size: 14px; }
+}
+@media (max-width: 390px) {
+  .site-header .brand-wordmark { display: block; }
+  .site-header .brand-name { display: block; }
+  .site-header .brand-version { flex-direction: row; font-size: 10px; gap: 5px; margin-top: 2px; }
+}
