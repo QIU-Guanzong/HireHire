@@ -1,6 +1,48 @@
 export type Locale = 'zh-Hant' | 'en';
 
+// Only these public intake diagnostics may be displayed from an API response.
+const intakeApiMessages: Record<string, string> = {
+  '此登記已提交，請重新開始以登記其他資料。': 'This registration has already been submitted. Start a new registration to enter different details.',
+  '部分人選已停止公開，請檢查所選人選後再提交。': 'Some selected profiles are no longer public. Check your selection before submitting.',
+  '請移除已停止公開的人選，其他資料仍可保留。': 'Remove profiles that are no longer public. You can keep your other details.',
+  '照片已過期或已使用，請重新上載。': 'The photo has expired or has already been used. Please upload it again.',
+  '請重新上載照片。': 'Please upload the photo again.',
+  '人選或照片狀態已更新，請檢查後再提交。': 'A selected profile or photo has changed. Check it before submitting.',
+  '請重新檢查所選人選。': 'Please check your selected profiles again.',
+  '請重新選擇人選。': 'Please select the profiles again.',
+  '暫時未能處理，請稍後再試。': 'The request could not be processed. Please try again later.',
+  '登記服務暫時未能使用，請稍後再試。': 'Registration is temporarily unavailable. Please try again later.',
+  '資料提交暫未開放，請稍後再試。': 'Registration is not open yet. Please try again later.',
+  '請從本站提交資料。': 'Please submit your details through this website.',
+  '請以表格提交資料。': 'Please use the registration form to submit your details.',
+  '資料過長，請縮短後再提交。': 'Your details are too long. Please shorten them before submitting.',
+  '請填寫登記資料。': 'Please enter your registration details.',
+  '資料格式不正確，請重新提交。': 'The details are not in the expected format. Please submit them again.',
+  '資料包含未支援的欄位。': 'The submission contains an unsupported field.',
+  '請檢查表格內的資料。': 'Please check the details in the form.',
+  '請選擇登記類型。': 'Please choose a registration type.',
+  '登記識別碼無效，請重新整理後再試。': 'The registration identifier is invalid. Refresh the page and try again.',
+  '未能提交，請重新填寫。': 'The form could not be submitted. Please complete it again.',
+  '最多選擇3位有效人選。': 'Choose up to three available candidates.',
+  '照片資料無效。': 'The photo details are invalid.',
+  '提交次數較多，請稍後再試。': 'Too many submissions. Please try again later.',
+  '請檢查工作經歷，每份須填寫地區及主要工作，日期順序須正確。': 'Check your work history. Each entry needs a location, main duties and dates in the correct order.',
+  '請同意資料用於聯絡及服務配對。': 'Please agree to the use of your details for contact and matching.',
+  '未能確認提交結果。資料仍在此頁，請重試。': 'The submission could not be confirmed. Your details are still on this page. Please retry.',
+  '暫時無法提交，請重試。': 'Submission is temporarily unavailable. Please retry.',
+  '請檢查此欄位。': 'Please check this field.',
+};
+
+export function intakeResponseError(message: unknown, fallback = '未能確認提交結果。資料仍在此頁，請重試。'): string {
+  return typeof message === 'string' && Object.hasOwn(intakeApiMessages, message) ? message : fallback;
+}
+
 const english: Record<string, string> = {
+  ...intakeApiMessages,
+  '最快可開始日期': 'Earliest start date', '服務地區': 'Service area',
+  '例如2位，分別3歲及7歲；沒有可留空。': 'For example, 2 children aged 3 and 7. Leave blank if none.',
+  '例如星期一至六，上午8時至下午6時。': 'For example, Monday to Saturday, 8am to 6pm.',
+  '是': 'Yes', '否': 'No', '同意公開': 'Agreed to a public profile', '不公開': 'Keep private',
   '家合僱傭': 'Jiahe Home Services',
   '家傭 · 陪月 · 家居照顧': 'Domestic helpers · Postnatal care · Home support',
   '家傭 · 陪月 · 長者照顧 · 家居服務': 'Domestic helpers · Postnatal care · Elder care · Home services',
@@ -162,6 +204,11 @@ const english: Record<string, string> = {
   '提交後請保留登記編號，方便跟進。': 'Keep your reference number for follow-up.',
 
   '英文姓名': 'Name in English', '提交結果尚未確認。請重試以確認結果，避免重複登記。': 'The submission is not yet confirmed. Retry to check its status and avoid duplicate registrations.',
+  '請填寫有效的電郵地址。': 'Enter a valid email address.',
+  '請填寫有效的聯絡電話（8至20位數字）。': 'Enter a valid contact number with 8–20 digits.',
+  '請填寫有效日期。': 'Enter a valid date.', '請確認有效的日期。': 'Enter a valid date.',
+  '請檢查工作經歷。': 'Check your work history.',
+  '請填寫工作經歷或補充經驗；首次求職可填寫「首次求職」。': 'Enter your work history or additional experience. If this is your first job, enter “First job”.',
   '提交結果尚未確認。請重試以確認同一份登記的結果。': 'The submission is not yet confirmed. Retry to check the same registration.',
   '上次的提交結果尚未確認。請按「重試確認」，我們會確認同一份登記的結果。': 'The previous submission is not yet confirmed. Choose Retry confirmation to check the same registration.',
   '提交結果尚未確認，草稿會保留至確認完成。': 'The draft will stay until the submission is confirmed.',
@@ -228,6 +275,8 @@ export function t(locale: Locale, text: string): string {
   if (age) return `${age[1]} years old`;
   const work = text.match(/^工作(\d+)$/);
   if (work) return `Job ${work[1]}`;
+  const experienceCount = text.match(/^最多8份，目前(\d+)份。$/);
+  if (experienceCount) return `Up to 8 entries. Currently ${experienceCount[1]}.`;
   const unavailable = text.match(/^(\d+)位人選暫未能查看資料。$/);
   if (unavailable) return `${unavailable[1]} ${unavailable[1] === '1' ? 'candidate is' : 'candidates are'} temporarily unavailable.`;
   const saved = text.match(/^(\d+)位已收藏人選$/);
@@ -238,23 +287,26 @@ export function t(locale: Locale, text: string): string {
   if (moreToCompare) return `You can add ${moreToCompare[1]} ${moreToCompare[1] === '1' ? 'more candidate' : 'more candidates'} to compare.`;
   const removeFromCompare = text.match(/^從比較移除(.+)$/);
   if (removeFromCompare) return `Remove ${removeFromCompare[1]} from comparison`;
-  const required = text.match(/^請填寫(.+)。$/);
-  if (required) return `Please enter ${t(locale, required[1])}.`;
-  const selectRequired = text.match(/^請選擇(.+)。$/);
-  if (selectRequired) return `Please select ${t(locale, selectRequired[1])}.`;
+  // Specific validation messages must precede the broader required-field forms.
   const invalidField = text.match(/^請選擇有效的(.+)。$/);
   if (invalidField) return `Choose a valid ${t(locale, invalidField[1])}.`;
   const validField = text.match(/^請填寫有效的(.+?)(?:（(.+)至(.+)）)?。$/);
   if (validField) return `Enter a valid ${t(locale, validField[1])}${validField[2] ? ` (${validField[2]}–${validField[3]})` : ''}.`;
+  const required = text.match(/^請填寫(.+)。$/);
+  if (required) return `Please enter ${t(locale, required[1])}.`;
+  const selectRequired = text.match(/^請選擇(.+)。$/);
+  if (selectRequired) return `Please select ${t(locale, selectRequired[1])}.`;
   const tooLong = text.match(/^(.+)最多可填寫(\d+)個字。$/);
   if (tooLong) return `${t(locale, tooLong[1])} can be up to ${tooLong[2]} characters.`;
   const experienceEntry = text.match(/^第(\d+)份工作經歷須填寫地區及主要工作。$/);
   if (experienceEntry) return `Enter a location and main duties for work history entry ${experienceEntry[1]}.`;
   const inspectEntry = text.match(/^請檢查第(\d+)份工作經歷。$/);
   if (inspectEntry) return `Check work history entry ${inspectEntry[1]}.`;
+  const workMonth = text.match(/^請檢查第(\d+)份工作的年月。$/);
+  if (workMonth) return `Check the year and month for work history entry ${workMonth[1]}.`;
+  const workOrder = text.match(/^第(\d+)份工作的結束月份不可早於開始月份。$/);
+  if (workOrder) return `The end month for work history entry ${workOrder[1]} cannot be before the start month.`;
   const atLeastOne = text.match(/^請填寫(.+)或(.+)；(.+)。$/);
   if (atLeastOne) return `Enter ${t(locale, atLeastOne[1])} or ${t(locale, atLeastOne[2])}; ${t(locale, atLeastOne[3])}.`;
-  if (text === '請確認有效的日期。') return 'Enter a valid date.';
-  if (text === '請填寫有效的電郵地址。') return 'Enter a valid email address.';
   return text;
 }
