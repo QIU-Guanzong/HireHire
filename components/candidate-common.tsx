@@ -109,7 +109,15 @@ export function CandidateSelectionBar({ selection }: { selection: CandidateSelec
   return <aside className="candidate-selection-bar" aria-label={tr('比較清單')}><span>{tr(`已選${selection.compared.length}位人選`)}</span><a className="button secondary" href={compareLink(selection.compared)}>{tr('比較資料')}</a><a className="button primary" href={employerLink(selection.compared)}>{tr('提交聘用需要')}</a><button className="candidate-clear" type="button" onClick={() => { selection.write('compare', []); selection.setMessage('已清空比較清單。'); }}>{tr('清空')}</button></aside>;
 }
 export function CandidateNoScript() { return <noscript><style>{'.candidate-status,.candidate-search-layout,.candidate-utility{display:none!important}'}</style><div className="candidate-notice">請啟用 JavaScript 查看及選擇人選。你也可以先查看<a href="/services">服務介紹</a>。</div></noscript>; }
-export function CandidateEmpty({ filtered = false, employerHref = '/employer' }: { filtered?: boolean; employerHref?: string }) {
+export function CandidateEmpty({ filtered = false, employerHref = '/employer', onClearFilters }: { filtered?: boolean; employerHref?: string; onClearFilters: () => void }) {
   const {locale}=useLocale(),tr=(value:string)=>t(locale,value);
-  return <div className="candidate-empty"><h2>{tr(filtered ? '暫時沒有符合條件的人選' : '暫時未有公開人選')}</h2><p>{tr(filtered ? '可以減少篩選條件，或把需要交給我們跟進。' : '你可先填寫服務需要，方便安排合適人選。')}</p><a className="button primary" href={employerHref}>{tr('填寫聘用需要')}</a><a className="candidate-text-link" href="/jobseeker">{tr('我想登記求職')}</a></div>;
+  return <div className="candidate-empty" data-state={filtered ? 'filtered' : 'empty'}>
+    <h3>{tr(filtered ? '暫時沒有符合條件的人選' : '暫時未有公開人選')}</h3>
+    <p>{tr(filtered ? '可逐項移除上方條件，或清除所有條件再查看人選。' : '你可先填寫服務需要，方便安排合適人選。')}</p>
+    <div className="candidate-empty-actions">
+      {filtered && <button type="button" className="button primary" onClick={onClearFilters}>{tr('清除所有條件')}</button>}
+      <a className={'button ' + (filtered ? 'secondary' : 'primary')} href={employerHref}>{tr('填寫聘用需要')}</a>
+    </div>
+    <a className="candidate-text-link" href="/jobseeker">{tr('我想登記求職')}</a>
+  </div>;
 }
