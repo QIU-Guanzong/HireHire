@@ -36,7 +36,10 @@ body:has(.home-page), body:has(.candidate-catalog-page) { background: var(--pape
 .site-header .hire-primary-navigation { font-size: 15px; }
 .site-header .hire-nav-group.is-current-section > .hire-nav-top-row::after, .site-header .hire-nav-direct[aria-current="page"]::after { bottom: 0; }
 .site-header .hire-nav-disclosure:hover, .site-header .hire-nav-subtoggle:hover { background: var(--sun-soft); }
-.site-header .hire-nav-disclosure[aria-expanded="true"] { background: var(--sun-soft); }
+.site-header .hire-nav-disclosure[aria-expanded="true"] { background: var(--sun-soft); color: var(--accent); box-shadow: inset 0 -3px var(--accent); }
+.site-header .hire-nav-group.is-current-section .hire-nav-disclosure { color: var(--accent); font-weight: 600; }
+.site-header .hire-nav-subtoggle[aria-expanded="true"] { background: var(--lavender); color: var(--accent); }
+.site-header .hire-nav-sublist { border-color: var(--line); }
 .site-header .hire-nav-panel { border-color: var(--line); border-top-color: var(--accent); border-radius: 0 0 10px 10px; box-shadow: 0 12px 24px #302a3212; }
 .site-header .hire-nav-panel a:hover, .site-header .hire-nav-panel a[aria-current="page"] { background: var(--lavender); color: var(--accent); }
 .site-header .hire-nav-register { font-size: 15px; padding-inline: 25px; }
@@ -95,6 +98,11 @@ body:has(.home-page) .site-footer a, body:has(.candidate-catalog-page) .site-foo
   .home-page .home-search-form--extended { gap: 12px; }
   .home-page .home-search-form .button { padding-inline: 18px; }
   .site-header .hire-primary-navigation { font-size: 14px; }
+}
+/* Collapse navigation before English labels crowd the header on narrow tablets. */
+@media (max-width: 800px) {
+  .site-header .header-utility a[href="/saved"], .site-header .header-utility a[href="/compare"] { display: none; }
+  .site-header .hire-nav-panel { box-shadow: none; border-top: 0; border-radius: 0; background: transparent; }
 }
 @media (max-width: 700px) {
   .site-header .header-utility a[href="/saved"], .site-header .header-utility a[href="/compare"] { display:none; }

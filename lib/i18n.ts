@@ -48,7 +48,7 @@ const english: Record<string, string> = {
   '家傭 · 陪月 · 長者照顧 · 家居服務': 'Domestic helpers · Postnatal care · Elder care · Home services',
   '跳到主要內容': 'Skip to main content', '家合僱傭首頁': 'Jiahe Home Services home',
   '已收藏人選': 'Saved candidates', '比較人選': 'Compare candidates', '搜尋人選': 'Find candidates', '全部人選': 'All candidates',
-  '按服務搜尋': 'Browse by service', '僱傭服務': 'Services', '服務範圍': 'Services offered',
+  '按服務搜尋': 'Browse by service', '僱傭服務': 'Services', '服務總覽': 'Service overview', '服務範圍': 'Services offered',
   '聘用流程': 'Hiring process', '服務收費': 'Fees', '常見問題': 'FAQs',
   '聯絡及查詢': 'Contact', '求職者登記': 'Jobseeker registration', '僱主登記': 'Employer enquiry',
   '關閉主導覽': 'Close navigation', '開啟主導覽': 'Open navigation', '選單': 'Menu',

@@ -33,6 +33,7 @@ const groups: NavigationGroup[] = [
   {
     id: 'services', label: '僱傭服務', href: '/services', paths: ['/services', '/process', '/fees', '/faq'],
     items: [
+      { label: '服務總覽', href: '/services' },
       { label: '服務範圍', id: 'service-range', links: serviceContent.map(service => ({ label: service.name, href: '/services#' + service.id })) },
       { label: '聘用流程', href: '/process' },
       { label: '服務收費', href: '/fees' },
@@ -72,7 +73,7 @@ export default function SiteNavigation() {
   }, [closeNavigation]);
 
   const resetAtBreakpoint = useCallback(() => {
-    const isMobile = window.matchMedia('(max-width: 700px)').matches;
+    const isMobile = window.matchMedia('(max-width: 800px)').matches;
     const activeElement = document.activeElement;
     // A newly hidden element can lose focus before the media-query event runs.
     const previousFocus = activeElement instanceof HTMLElement && shell.current?.contains(activeElement)
@@ -80,7 +81,7 @@ export default function SiteNavigation() {
     mobileBreakpoint.current = isMobile;
     closeNavigation();
     if (isMobile && previousFocus && navigation.current?.contains(previousFocus)) mobileTrigger.current?.focus();
-    else if (!isMobile && previousFocus === mobileTrigger.current) navigation.current?.querySelector<HTMLAnchorElement>('.hire-nav-link')?.focus();
+    else if (!isMobile && previousFocus === mobileTrigger.current) navigation.current?.querySelector<HTMLElement>('.hire-nav-link')?.focus();
     else if (!isMobile && previousFocus && navigation.current?.contains(previousFocus) && previousFocus.closest('.hire-nav-panel')) {
       previousFocus.closest('.hire-nav-group')?.querySelector<HTMLButtonElement>('.hire-nav-disclosure')?.focus();
     }
@@ -92,7 +93,7 @@ export default function SiteNavigation() {
     const outsidePointer = (event: PointerEvent) => {
       if (event.target instanceof Node && !shell.current?.contains(event.target)) resetAfterNavigation();
     };
-    const breakpoint = window.matchMedia('(max-width: 700px)');
+    const breakpoint = window.matchMedia('(max-width: 800px)');
     mobileBreakpoint.current = breakpoint.matches;
     document.addEventListener('pointerdown', outsidePointer);
     window.addEventListener('popstate', resetAfterNavigation);
@@ -128,7 +129,7 @@ export default function SiteNavigation() {
   return <div className="navigation-shell" ref={shell} onKeyDown={handleEscape} onFocusCapture={event => {
     if (event.target instanceof HTMLElement) lastFocusedElement.current = event.target;
   }} onBlur={event => {
-    if (!event.relatedTarget && mobileBreakpoint.current !== null && window.matchMedia('(max-width: 700px)').matches !== mobileBreakpoint.current) {
+    if (!event.relatedTarget && mobileBreakpoint.current !== null && window.matchMedia('(max-width: 800px)').matches !== mobileBreakpoint.current) {
       resetAtBreakpoint();
     } else if (!(event.relatedTarget instanceof Node) || !shell.current?.contains(event.relatedTarget)) resetAfterNavigation();
   }}>
@@ -146,11 +147,11 @@ export default function SiteNavigation() {
           }
         }}>
           <div className="hire-nav-top-row">
-            <a href={group.href} className="hire-nav-link" aria-current={currentPage(group.href) || (group.id === 'candidates' && pathname.startsWith('/candidates/')) ? 'page' : undefined} onClick={resetAfterNavigation}>{t(locale, group.label)}</a>
-            <button ref={element => { groupTriggers.current[group.id] = element; }} type="button" className="hire-nav-disclosure" aria-label={t(locale, group.label) + (locale === 'en' ? ' menu' : '選單')} aria-expanded={activeGroup === group.id} aria-controls={'navigation-' + group.id} onClick={() => {
+            <button ref={element => { groupTriggers.current[group.id] = element; }} type="button" className="hire-nav-link hire-nav-disclosure" aria-expanded={activeGroup === group.id} aria-controls={'navigation-' + group.id} onClick={() => {
               setActiveGroup(activeGroup === group.id ? null : group.id);
               setActiveSection(null);
-            }}><ChevronDown size={16} aria-hidden="true" /></button>
+            }}><span>{t(locale, group.label)}</span><ChevronDown size={16} aria-hidden="true" /></button>
+            <span className="hire-nav-fallback-heading">{t(locale, group.label)}</span>
           </div>
           <ul id={'navigation-' + group.id} className="hire-nav-panel" hidden={activeGroup !== group.id}>
             {group.items.map(item => 'href' in item ? <li key={item.href}>{renderLink(item)}</li> : <li key={item.id} className="hire-nav-section">
