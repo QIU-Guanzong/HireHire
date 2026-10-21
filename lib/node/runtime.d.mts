@@ -6,5 +6,5 @@ export function runtimeSession(request?: Request): { authenticated: boolean; aut
 export function expectedOrigin(request?: Request): string | null;
 export function clientIp(request?: Request): string;
 export function closeNodeRuntime(): void;
-export function releaseChannel(): 'preview' | 'production';
+export function releaseChannel(): 'preview' | 'candidate' | 'production';
 export function writesEnabled(): boolean;

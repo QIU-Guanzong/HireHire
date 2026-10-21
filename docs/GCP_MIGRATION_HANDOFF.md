@@ -33,7 +33,7 @@ An existing IAP/SSH channel can forward a local loopback port to the remote Unix
 | `HIREHIRE_DATA_ROOT` | Reviewed persistent private storage path outside code releases. |
 | `HIREHIRE_RATE_LIMIT_SALT` | Server-only secret, minimum 24 characters; runtime file only. |
 | `HIREHIRE_WRITES_ENABLED=false` | Default closed intake, photo and management mutations; explicitly enable only after cutover checks. |
-| `HIREHIRE_RELEASE_CHANNEL=preview` | Default local/candidate channel; set `production` only in the reviewed live service configuration. |
+| `HIREHIRE_RELEASE_CHANNEL=preview` | Default local preview. Use `candidate` for a review candidate; set `production` only in the reviewed live service configuration. These labels do not enable writes or management. |
 | `HIREHIRE_TRUST_LOCAL_PROXY=false` | Dedicated proxy IP header is untrusted by default. |
 | `HIREHIRE_MANAGEMENT_ENABLED=false` | No management socket by default. |
 | `HIREHIRE_UNIX_ACCESS_CONFIRMED` | Required explicit OS/IAP/SSH access-scope confirmation when enabling management. |
@@ -154,3 +154,11 @@ The snapshot's private `manifest.json` contains format version, timestamp, SQLit
 For restore, keep the application stopped. Verify the saved manifest, database integrity, foreign keys, migration-journal checksums, object ownership/modes and row/object relationships in an **empty new private persistent directory**; do not overwrite the active data root or attach a backup to a running SQLite connection. Copy both `hirehire.sqlite` and the matching `private-objects` into that new directory. No source WAL sidecar is required for the verified `VACUUM INTO` image; leave original database/WAL/SHM files untouched. Point the reviewed runtime environment at the restored directory and start the known release with management still disabled. Verify readiness, expected counts, persistence after restart and private access denial before reopening writes. If any restore check fails, stop the candidate and return to the preserved data/release instead of deleting evidence or forcing schema adoption.
 
 Activation requires operations to verify the package on the existing VM, filesystem persistence and backups, reviewed service identity and configuration, proxy/TLS behavior, and public/admin denial rules. Keep management disabled until its actual access mapping is approved. Recheck both independent forms, uncertain-response retry, persistence after restart, consent withdrawal, private photo/PDF access and customer/full PDF separation using synthetic isolated data before activation. After any separately authorized cutover, verify HTTPS, release provenance, public health, private access denial and real Hong Kong network reachability. Browser emulation does not establish physical-phone or screen-reader acceptance.
+
+## Visible build identity
+
+The header keeps the package version (currently 1.2.0) separate from Preview / Candidate / Live and the short source SHA. `/api/live` supplies the full source commit, tree and build ID; it remains independent of storage and is not an authentication or readiness signal.
+
+`next.config.mjs` captures an actual clean Git checkout only during the production build. The compiled source SHA is also the Next build ID. Runtime `HIREHIRE_BUILT_SOURCE_*` values cannot relabel an existing bundle. Dev, dirty or no-Git builds have unknown source; a production channel without valid source must display Unknown, never Live.
+
+Commit the intended source before building. The existing `package-node-release.mjs --record-build=...` and package flow validate the build-injected commit/tree against Git and `.next/BUILD_ID`; mismatched or unknown sources require a fresh build. Documentation-only descendants may retain the actual built ancestor SHA if the existing input/output checks still pass. A final merge SHA needs its own clean build when that SHA must appear in the live label. Keep the previously verified artifact for rollback; do not rewrite its provenance. The runtime package includes `scripts/build-source.mjs` because the Next configuration imports it, but does not require Git at runtime.
