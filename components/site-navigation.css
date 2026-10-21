@@ -28,13 +28,14 @@
   background: var(--accent);
 }
 .hire-nav-direct { position: relative; }
+.hire-nav-fallback-heading { display: none; }
 
 .hire-nav-disclosure, .hire-nav-subtoggle, .hire-menu-toggle {
   border: 0;
   background: transparent;
   color: inherit;
 }
-.hire-nav-disclosure { display: grid; place-items: center; width: 44px; min-height: 50px; padding: 0; }
+.hire-nav-disclosure { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 50px; padding: 0 10px; font: inherit; text-align: left; }
 .hire-nav-disclosure:hover, .hire-nav-disclosure[aria-expanded="true"] { background: #edf3ed; color: var(--accent); }
 .hire-nav-disclosure svg, .hire-nav-subtoggle svg { flex-shrink: 0; transition: transform .12s; }
 .hire-nav-disclosure[aria-expanded="true"] svg, .hire-nav-subtoggle[aria-expanded="true"] svg { transform: rotate(180deg); }
@@ -45,7 +46,7 @@
   z-index: 35;
   top: 100%;
   left: 0;
-  width: 264px;
+  width: 240px;
   padding: 8px;
   border: 1px solid var(--line);
   border-top: 2px solid var(--accent);
@@ -90,7 +91,7 @@
   .hire-nav-register { padding-inline: 19px; font-size: 13px; }
 }
 
-@media (max-width: 700px) {
+@media (max-width: 800px) {
   .hire-navigation-inner { display: grid; grid-template-columns: 1fr auto; gap: 0; min-height: 46px; }
   .hire-menu-toggle { display: flex; align-items: center; justify-self: start; gap: 9px; min-height: 46px; padding: 9px 10px 9px 0; font-size: 13px; }
   .hire-nav-register { grid-column: 2; grid-row: 1; min-height: 46px; margin: 0; padding: 9px 19px; font-size: 12px; }
@@ -99,7 +100,7 @@
   .hire-nav-group { width: 100%; }
   .hire-nav-top-row { height: auto; min-height: 46px; }
   .hire-nav-link { flex: 1; min-height: 46px; padding: 10px 9px; }
-  .hire-nav-disclosure { width: 46px; min-height: 46px; }
+  .hire-nav-disclosure { width: 100%; min-height: 46px; padding: 10px 9px; }
   .hire-nav-group.is-current-section > .hire-nav-top-row, .hire-nav-direct[aria-current="page"] { background: #edf3ed; }
   .hire-nav-group.is-current-section > .hire-nav-top-row::after, .hire-nav-direct[aria-current="page"]::after { display: none; }
   .hire-nav-panel { position: static; width: 100%; padding: 4px 0 8px 12px; border: 0; border-left: 1px solid var(--line); box-shadow: none; margin: 0 0 6px 9px; max-width: calc(100% - 9px); }

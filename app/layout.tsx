@@ -24,9 +24,10 @@ export default async function RootLayout({children}:Readonly<{children:React.Rea
    .hire-nav-panel[hidden],.hire-nav-sublist[hidden],.hire-nav-subheading{display:block!important}
    .hire-nav-panel{position:static!important;width:auto!important;max-width:none!important;box-shadow:none!important;border:0!important;padding:0!important;margin:0!important}
    .hire-nav-top-row{height:auto}
+   .hire-nav-fallback-heading{display:block;padding:9px 13px;font-weight:600}
    .hire-nav-subheading{font-weight:500}
    .hire-nav-group.is-current-section>.hire-nav-top-row::after{display:none}
-   @media(max-width:700px){.hire-nav-group{flex:none}.hire-primary-navigation{width:100%}.hire-nav-register{align-self:start}}
+   @media(max-width:800px){.hire-nav-group{flex:none}.hire-primary-navigation{width:100%}.hire-nav-register{align-self:start}}
   `}</style></noscript>
   <a className="skip-link" href="#main-content">{t(locale, '跳到主要內容')}</a>
   <header className="site-header"><div className="site-width header-inner">
