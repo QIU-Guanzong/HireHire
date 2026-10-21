@@ -28,6 +28,9 @@ body:has(.home-page), body:has(.candidate-catalog-page) { background: var(--pape
 .site-header .brand-version-mode { display: inline-block; min-width: 3em; }
 .site-header .header-utility { font-size: 13px; gap: 25px; color: var(--accent); }
 .site-header .header-utility a { display: inline-flex; align-items: center; min-width: 44px; min-height: 44px; }
+.site-header .language-switcher { display:inline-flex; flex:0 0 auto; align-items:center; justify-content:center; min-width:3.1em; min-height:38px; padding:0 8px; white-space:nowrap; border:1px solid var(--line); border-radius:4px; color:var(--accent); background:transparent; font:inherit; cursor:pointer; }
+.site-header .language-switcher:hover { background:var(--sun-soft); }
+.site-header .language-switcher:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
 .site-header .header-utility a[href="/jobseeker"] { display: none; }
 .site-header .navigation-shell { background: var(--sun); border-top: 0; border-bottom: 0; }
 .site-header .hire-primary-navigation { font-size: 15px; }
@@ -94,6 +97,7 @@ body:has(.home-page) .site-footer a, body:has(.candidate-catalog-page) .site-foo
   .site-header .hire-primary-navigation { font-size: 14px; }
 }
 @media (max-width: 700px) {
+  .site-header .header-utility a[href="/saved"], .site-header .header-utility a[href="/compare"] { display:none; }
   .site-header .header-inner { height: 70px; }
   .site-header .brand { font-size: 22px; gap: 9px; }
   .site-header .brand-mark { width: 36px; height: 40px; font-size: 24px; border-radius: 9px 9px 3px 9px; }
