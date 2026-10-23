@@ -231,6 +231,8 @@ export default function IntakeForm({ kind }: { kind: IntakeKind }) {
     setSubmitting(true);
     setSubmitError('');
     let requestStarted = false, confirmedFailure = false;
+    const controller = new AbortController();
+    let requestTimeout: ReturnType<typeof setTimeout> | undefined;
     try {
       const envelope={kind,data,...(photo?{photo:{id:photo.id,token:photo.token}}:{}),...(candidateIds.length?{candidateIds}: {})};
       const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(envelope)));
@@ -255,11 +257,17 @@ export default function IntakeForm({ kind }: { kind: IntakeKind }) {
       }
       setPendingSubmission(true);
       requestStarted = true;
+      // Keep the deadline active through response.json(): headers can arrive
+      // while the body stalls. An abort never proves the registration failed.
+      requestTimeout = setTimeout(() => controller.abort(), 30_000);
       const response = await fetch('/api/intake', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...envelope, idempotencyKey: attemptRef.current!.key, website: websiteRef.current?.value ?? '' }),
+        signal: controller.signal,
       });
       const parsed: unknown = await response.json().catch(() => null);
+      // Do not classify an interrupted 4xx body as a confirmed rejection.
+      controller.signal.throwIfAborted();
       const result = (parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {}) as ApiResult;
       if (!response.ok || !result.reference) {
         confirmedFailure = response.status >= 400 && response.status < 500 && ![408,425].includes(response.status);
@@ -281,7 +289,11 @@ export default function IntakeForm({ kind }: { kind: IntakeKind }) {
       if (requestStarted) setPendingSubmission(!confirmedFailure);
       setSubmitError(intakeResponseError(error instanceof Error ? error.message : null));
       requestAnimationFrame(() => errorRef.current?.focus());
-    } finally { busyRef.current = false; setSubmitting(false); }
+    } finally {
+      clearTimeout(requestTimeout);
+      busyRef.current = false;
+      setSubmitting(false);
+    }
   };
 
 
