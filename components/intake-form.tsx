@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
 import { ArrowLeft, ArrowRight, Check, CheckCircle2, ChevronRight } from 'lucide-react';
 import { allFields, isFieldVisible, kindLabel, parseWorkExperiences, sections, services, type Field, type IntakeData, type IntakeKind } from '@/lib/fields';
 import { formatWorkExperience, type CandidatePublic, type WorkExperience } from '@/lib/platform-types';
@@ -9,10 +9,13 @@ import { intakeResponseError, t, type Locale } from '@/lib/i18n';
 
 type Attempt = { key: string; fingerprint: string };
 type PhotoAttachment = { id: string; token: string };
-type Draft = { data: IntakeData; step: number; savedAt: string; reviewReached?: boolean; attempt?: Attempt; pending?: boolean; photo?: PhotoAttachment; candidateIds?: string[] };
+type Draft = { revision?: string; data: IntakeData; step: number; savedAt: string; reviewReached?: boolean; attempt?: Attempt; pending?: boolean; photo?: PhotoAttachment; candidateIds?: string[] };
 type ApiResult = { reference?: string; error?: string; fields?: Record<string, string> };
 const draftKey = (kind: IntakeKind) => `jiahe.intake.${kind}.v1`;
 const attemptKey = (kind: IntakeKind) => `jiahe.attempt.${kind}.v1`;
+const draftConflictNote = '另一頁已更新草稿。此頁資料仍保留，但不會覆寫已儲存草稿；如提交結果未確認，請留在此頁重試確認。';
+const draftLockNote = '此瀏覽器無法安全鎖定草稿，本頁只保留輸入，不會儲存或刪除草稿。請留在此頁確認提交結果。';
+const draftReadNote = '未能讀取已儲存草稿，請重試；本頁輸入仍保留，不會覆寫已儲存草稿。';
 const valueText = (value: IntakeData[string] | undefined) => Array.isArray(value) ? value.join('、') : typeof value === 'string' ? value : '';
 function queryPrefill(kind: IntakeKind, search: string): IntakeData {
   const params = new URLSearchParams(search), initial: IntakeData = {};
@@ -139,6 +142,7 @@ export default function IntakeForm({ kind }: { kind: IntakeKind }) {
   const [pendingDraft, setPendingDraft] = useState<Draft | null>(null);
   const [saveDraft, setSaveDraft] = useState(false);
   const [draftNote, setDraftNote] = useState('');
+  const [draftUpdating, setDraftUpdating] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState('');
   const [pendingSubmission, setPendingSubmission] = useState(false);
@@ -146,31 +150,84 @@ export default function IntakeForm({ kind }: { kind: IntakeKind }) {
   const [photo,setPhoto] = useState<PhotoAttachment|null>(null), [photoPreview,setPhotoPreview] = useState(''), [photoUploading,setPhotoUploading] = useState(false), [photoError,setPhotoError] = useState('');
   const [candidateIds,setCandidateIds] = useState<string[]>([]), [candidates,setCandidates] = useState<CandidatePublic[]>([]), [candidateLoading,setCandidateLoading] = useState(false), [candidateError,setCandidateError] = useState(''), [candidateReload,setCandidateReload] = useState(0);
   const photoPreviewRef = useRef(''), photoAbortRef = useRef<AbortController|null>(null);
+  const submissionAbortRef = useRef<AbortController | null>(null);
+  // An exact serialized revision is owned only until another writer changes it.
+  // Undefined means ownership was lost; ordinary edits must not reacquire it.
+  const draftSnapshotRef = useRef<string | null | undefined>(undefined);
+  const draftEpochRef = useRef(0);
+  const draftCompleteRef = useRef(false);
+  const draftWritesUnavailableRef = useRef(false);
   const titleRef = useRef<HTMLHeadingElement>(null);
   const errorRef = useRef<HTMLDivElement>(null);
   const attemptRef = useRef<Attempt | null>(null);
   const websiteRef = useRef<HTMLInputElement>(null);
   const busyRef = useRef(false);
-  const locked = submitting || pendingSubmission || Boolean(pendingDraft?.pending);
+  const locked = submitting || draftUpdating || pendingSubmission || Boolean(pendingDraft?.pending);
+
+  const updateStoredDraft = useCallback(async (draft: Draft | null, options: { signal?: AbortSignal; auto?: boolean; discardAttempt?: string } = {}) => {
+    const epoch = draftEpochRef.current;
+    options.signal?.throwIfAborted();
+    if (draftWritesUnavailableRef.current) { setDraftNote(draftLockNote); return 'lock-unavailable' as const; }
+    let lockEntered = false;
+    try {
+      // A read/set pair alone is not atomic across tabs. All cooperating form
+      // writers use this short synchronous Web Lock, including deletes.
+      if (!navigator.locks) throw new Error('Draft locking unavailable');
+      return await navigator.locks.request(`jiahe.draft.${kind}`, { signal: options.signal }, () => {
+        lockEntered = true;
+        options.signal?.throwIfAborted();
+        if (epoch !== draftEpochRef.current || (options.auto && (busyRef.current || draftCompleteRef.current))) return false;
+        let current: string | null;
+        try { current = localStorage.getItem(draftKey(kind)); }
+        catch { setDraftNote(draftReadNote); return false; }
+        if (draftSnapshotRef.current === undefined || current !== draftSnapshotRef.current) {
+          draftSnapshotRef.current = undefined;
+          setDraftNote(draftConflictNote);
+          return false;
+        }
+        if (options.discardAttempt && (!current || (JSON.parse(current) as Draft).attempt?.key !== options.discardAttempt)) return false;
+        const next = draft ? JSON.stringify({ ...draft, revision: crypto.randomUUID() }) : null;
+        if (next === null) localStorage.removeItem(draftKey(kind));
+        else localStorage.setItem(draftKey(kind), next);
+        draftSnapshotRef.current = next;
+        setDraftNote(next === null ? '' : '草稿已儲存在此瀏覽器');
+        return true;
+      });
+    } catch {
+      options.signal?.throwIfAborted();
+      if (epoch !== draftEpochRef.current) return false;
+      if (!lockEntered) {
+        draftWritesUnavailableRef.current = true;
+        setDraftNote(draftLockNote);
+        return 'lock-unavailable' as const;
+      }
+      setDraftNote('此瀏覽器無法儲存草稿，請留在此頁確認提交結果。');
+      return false;
+    }
+  }, [kind]);
 
   useEffect(() => {
+    const epoch = ++draftEpochRef.current;
+    draftCompleteRef.current = false;
+    draftWritesUnavailableRef.current = false;
+    draftSnapshotRef.current = undefined;
     setData(queryPrefill(kind, window.location.search));
     if (kind==='employer') setCandidateIds(queryCandidateIds(window.location.search));
     try {
       const raw = localStorage.getItem(draftKey(kind));
-      if (!raw) return;
-      const parsed = JSON.parse(raw) as Draft;
-      if (parsed && typeof parsed.data === 'object' && parsed.data !== null && typeof parsed.step === 'number') setPendingDraft(parsed);
-    } catch { /* The form remains usable when browser storage is unavailable. */ }
+      draftSnapshotRef.current = raw;
+      if (raw) {
+        const parsed = JSON.parse(raw) as Draft;
+        if (parsed && typeof parsed.data === 'object' && parsed.data !== null && typeof parsed.step === 'number') setPendingDraft(parsed);
+      }
+    } catch { setDraftNote(draftReadNote); }
+    return () => { draftEpochRef.current = epoch + 1; };
   }, [kind]);
 
   useEffect(() => {
-    if (!saveDraft || reference) return;
-    try {
-      localStorage.setItem(draftKey(kind), JSON.stringify({ data, step, reviewReached, savedAt: new Date().toISOString(), ...(attemptRef.current ? { attempt: attemptRef.current } : {}), pending: pendingSubmission, ...(photo ? { photo } : {}), candidateIds }));
-      setDraftNote('草稿已儲存在此瀏覽器');
-    } catch { setDraftNote('此瀏覽器無法儲存草稿，請完成後提交。'); }
-  }, [data, step, reviewReached, kind, saveDraft, reference, pendingSubmission, photo, candidateIds]);
+    if (!saveDraft || reference || pendingDraft || submitting || draftUpdating) return;
+    void updateStoredDraft({ data, step, reviewReached, savedAt: new Date().toISOString(), ...(attemptRef.current ? { attempt: attemptRef.current } : {}), pending: pendingSubmission, ...(photo ? { photo } : {}), candidateIds }, { auto: true });
+  }, [data, step, reviewReached, saveDraft, reference, pendingDraft, submitting, draftUpdating, pendingSubmission, photo, candidateIds, updateStoredDraft]);
 
   useEffect(() => {
     if (kind !== 'employer' || candidateIds.length===0) { setCandidates([]);setCandidateLoading(false);setCandidateError('');return; }
@@ -180,7 +237,7 @@ export default function IntakeForm({ kind }: { kind: IntakeKind }) {
     fetch(`/api/candidates?${params}`,{signal:controller.signal,cache:'no-store'}).then(async response=>{if(!response.ok) throw new Error('未能讀取已選人選，請重試。');return response.json() as Promise<{candidates:CandidatePublic[]}>;}).then(result=>{if(!controller.signal.aborted){setCandidates(result.candidates);if(candidateIds.some(id=>!result.candidates.some(person=>person.id===id)))setCandidateError('部分人選目前未能選擇，請移除或重新選擇。');}}).catch(caught=>{if(!controller.signal.aborted){setCandidates([]);setCandidateError(caught instanceof Error?caught.message:'未能讀取人選。');}}).finally(()=>{if(!controller.signal.aborted)setCandidateLoading(false);});
     return ()=>controller.abort();
   },[kind,candidateIds,candidateReload]);
-  useEffect(()=>()=>{photoAbortRef.current?.abort();if(photoPreviewRef.current)URL.revokeObjectURL(photoPreviewRef.current);},[]);
+  useEffect(()=>()=>{submissionAbortRef.current?.abort();photoAbortRef.current?.abort();if(photoPreviewRef.current)URL.revokeObjectURL(photoPreviewRef.current);},[]);
   const replacePhotoPreview=(url:string)=>{if(photoPreviewRef.current)URL.revokeObjectURL(photoPreviewRef.current);photoPreviewRef.current=url;setPhotoPreview(url);};
   const clearPhoto=()=>{setPhoto(null);replacePhotoPreview('');setPhotoError('');setErrors(current=>{const next={...current};delete next.photo;return next;});};
   const uploadPhoto=async(event:ChangeEvent<HTMLInputElement>)=>{
@@ -232,28 +289,31 @@ export default function IntakeForm({ kind }: { kind: IntakeKind }) {
     setSubmitError('');
     let requestStarted = false, confirmedFailure = false;
     const controller = new AbortController();
+    submissionAbortRef.current = controller;
     let requestTimeout: ReturnType<typeof setTimeout> | undefined;
     try {
       const envelope={kind,data,...(photo?{photo:{id:photo.id,token:photo.token}}:{}),...(candidateIds.length?{candidateIds}: {})};
       const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(envelope)));
+      // Navigation can unmount this form while the fingerprint is computing.
+      // Do not let the old instance send or overwrite a newer form's draft.
+      controller.signal.throwIfAborted();
       const fingerprint = Array.from(new Uint8Array(bytes), byte => byte.toString(16).padStart(2, '0')).join('');
       if (attemptRef.current?.fingerprint !== fingerprint && !(pendingSubmission&&attemptRef.current)) {
         let saved: Attempt | null = null;
         try { saved = JSON.parse(sessionStorage.getItem(attemptKey(kind)) || 'null') as Attempt | null; } catch { /* Memory fallback. */ }
         attemptRef.current = saved?.fingerprint === fingerprint && /^[A-Za-z0-9_-]{16,100}$/.test(saved.key) ? saved : { key: crypto.randomUUID(), fingerprint };
       }
+      const submittedAttempt = attemptRef.current!;
       try { sessionStorage.setItem(attemptKey(kind), JSON.stringify(attemptRef.current)); } catch { /* Memory fallback. */ }
       // Save the original attempt before sending it: the response may never
       // reach this tab even after the server has accepted the registration.
       if (saveDraft) {
-        try {
-          localStorage.setItem(draftKey(kind), JSON.stringify({
-            data, step: formSections.length, reviewReached: true,
-            savedAt: new Date().toISOString(), attempt: attemptRef.current,
-            pending: true, ...(photo ? { photo } : {}), candidateIds,
-          }));
-          setDraftNote('草稿已儲存在此瀏覽器');
-        } catch { setDraftNote('此瀏覽器無法儲存草稿，請留在此頁確認提交結果。'); }
+        await updateStoredDraft({
+          data, step: formSections.length, reviewReached: true,
+          savedAt: new Date().toISOString(), attempt: submittedAttempt,
+          pending: true, ...(photo ? { photo } : {}), candidateIds,
+        }, { signal: controller.signal });
+        controller.signal.throwIfAborted();
       }
       setPendingSubmission(true);
       requestStarted = true;
@@ -262,7 +322,7 @@ export default function IntakeForm({ kind }: { kind: IntakeKind }) {
       requestTimeout = setTimeout(() => controller.abort(), 30_000);
       const response = await fetch('/api/intake', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...envelope, idempotencyKey: attemptRef.current!.key, website: websiteRef.current?.value ?? '' }),
+        body: JSON.stringify({ ...envelope, idempotencyKey: submittedAttempt.key, website: websiteRef.current?.value ?? '' }),
         signal: controller.signal,
       });
       const parsed: unknown = await response.json().catch(() => null);
@@ -279,9 +339,15 @@ export default function IntakeForm({ kind }: { kind: IntakeKind }) {
         }
         throw new Error(intakeResponseError(result.error));
       }
+      draftCompleteRef.current = true;
       setReference(result.reference);
-      try { localStorage.removeItem(draftKey(kind)); } catch { /* Optional storage. */ }
-      try { sessionStorage.removeItem(attemptKey(kind)); } catch { /* Optional storage. */ }
+      // Even the same attempt key may now belong to a newer edited revision.
+      // A receipt may delete only the exact draft version this form still owns.
+      await updateStoredDraft(null, { signal: controller.signal, discardAttempt: submittedAttempt.key });
+      try {
+        const saved = JSON.parse(sessionStorage.getItem(attemptKey(kind)) || 'null') as Attempt | null;
+        if (saved?.key === submittedAttempt.key) sessionStorage.removeItem(attemptKey(kind));
+      } catch { /* Optional storage. */ }
       attemptRef.current = null; setPendingSubmission(false);
       setSaveDraft(false);clearPhoto();setCandidateIds([]);
       requestAnimationFrame(() => titleRef.current?.focus());
@@ -291,11 +357,52 @@ export default function IntakeForm({ kind }: { kind: IntakeKind }) {
       requestAnimationFrame(() => errorRef.current?.focus());
     } finally {
       clearTimeout(requestTimeout);
+      if (submissionAbortRef.current === controller) submissionAbortRef.current = null;
       busyRef.current = false;
       setSubmitting(false);
     }
   };
 
+
+  const handleSavedDraft = async (restart: boolean) => {
+    if (busyRef.current || pendingSubmission || !pendingDraft || (restart && pendingDraft.pending)) return;
+    const epoch = draftEpochRef.current;
+    busyRef.current = true;
+    setDraftUpdating(true);
+    try {
+      const result = await updateStoredDraft(restart ? null : pendingDraft);
+      if (epoch !== draftEpochRef.current || result === false) return;
+      if (result === 'lock-unavailable') {
+        if (restart) return; // Deleting a stored draft still requires a lock.
+        // Reading does not require a write lock. Restore only the snapshot the
+        // user saw, and leave all persistence disabled for this page instance.
+        let current: string | null;
+        try { current = localStorage.getItem(draftKey(kind)); }
+        catch { setDraftNote(draftReadNote); return; }
+        if (draftSnapshotRef.current === undefined || current !== draftSnapshotRef.current) {
+          draftSnapshotRef.current = undefined;
+          setDraftNote(draftConflictNote);
+          return;
+        }
+      }
+      if (restart) {
+        setData(queryPrefill(kind, window.location.search)); clearPhoto();
+        setCandidateIds(kind === 'employer' ? queryCandidateIds(window.location.search) : []);
+        setStep(0); setReviewReached(false); setErrors({});
+      } else {
+        setData(pendingDraft.data); setPhoto(kind === 'jobseeker' ? pendingDraft.photo || null : null);
+        replacePhotoPreview(''); setCandidateIds(kind === 'employer' ? pendingDraft.candidateIds || [] : []);
+        goTo(pendingDraft.pending ? formSections.length : Math.min(Math.max(pendingDraft.step, 0), formSections.length));
+        setReviewReached(pendingDraft.reviewReached === true || pendingDraft.step >= formSections.length || Boolean(pendingDraft.pending));
+        attemptRef.current = pendingDraft.attempt || null;
+        setPendingSubmission(Boolean(pendingDraft.pending)); setSaveDraft(result === true);
+      }
+      setPendingDraft(null);
+    } finally {
+      busyRef.current = false;
+      if (epoch === draftEpochRef.current) setDraftUpdating(false);
+    }
+  };
 
   const selectedCandidatesPanel=kind==='employer'&&candidateIds.length>0?<section className="selected-candidates" id="field-candidateIds" tabIndex={-1} aria-labelledby="selected-candidates-title"><h3 id="selected-candidates-title">{tr('已選人選')}（{candidateIds.length}／3）</h3>{candidateLoading&&<p role="status">{tr('正在讀取人選資料…')}</p>}{candidateIds.map((id,index)=>{const person=candidates.find(candidate=>candidate.id===id);return <div className="selected-candidate-row" key={id}><div><strong>{person?.displayName||`${tr('人選')}${index+1}`}</strong><p>{person?`${person.reference} · ${person.services.map(service=>tr(service)).join('、')}`:tr('此人選目前未能選擇')}</p>{person&&<a href={`/candidates/${encodeURIComponent(id)}`} target="_blank" rel="noopener noreferrer">{tr('查看簡介')}</a>}</div><button type="button" className="text-action" disabled={locked} onClick={()=>{setCandidateIds(current=>current.filter(value=>value!==id));setErrors(current=>{const next={...current};delete next.candidateIds;return next;});}}>{tr('移除')}<span className="sr-only">{person?.displayName||`${tr('人選')}${index+1}`}</span></button></div>;})}{(candidateError||errors.candidateIds)&&<p className="field-error">{tr(errors.candidateIds||candidateError)}</p>}{candidateError&&candidateIds.length<=3&&<button type="button" className="work-button secondary" disabled={candidateLoading||locked} onClick={()=>setCandidateReload(current=>current+1)}>{tr('重新讀取人選')}</button>}</section>:null;
   const photoPicker=kind==='jobseeker'&&step===0?<section className="intake-photo"><h3>{tr('個人照片')}<span className="field-optional">{tr('選填')}</span></h3><p className="field-hint">{tr('JPG、PNG 或 WebP，最多8MB。照片會隨登記交到後台；同意公開簡介並經審核發佈後，亦會顯示照片。')}</p>{photo&&<div className="photo-selected">{photoPreview?<img src={photoPreview} alt={tr('已選照片預覽')}/>:<span>{tr('已有待提交照片。暫存到期可重新上載。')}</span>}<button type="button" className="text-action" disabled={locked||photoUploading} onClick={clearPhoto}>{tr('移除照片')}</button></div>}<label htmlFor="field-photo">{tr(photo?'更換照片':'選擇照片')}</label><input id="field-photo" type="file" accept="image/jpeg,image/png,image/webp" disabled={locked||photoUploading} aria-describedby="photo-storage-note" aria-invalid={Boolean(photoError||errors.photo)} onChange={event=>void uploadPhoto(event)}/>{photoUploading&&<p role="status">{tr('正在處理及上載照片…')}</p>}{(photoError||errors.photo)&&<p className="field-error" role="alert">{tr(photoError||errors.photo)}</p>}<p id="photo-storage-note" className="field-hint">{tr('未提交照片最多暫存24小時。勾選儲存草稿時，會保留待提交照片；不會把照片原檔另存到瀏覽器。')}</p></section>:null;
@@ -314,7 +421,7 @@ export default function IntakeForm({ kind }: { kind: IntakeKind }) {
     <div className="workspace-breadcrumb"><a href="/">{tr('首頁')}</a><ChevronRight size={14} aria-hidden="true"/><span>{tr(kind === 'jobseeker' ? '求職者登記' : '僱主表格')}</span></div>
     <div className="intake-intro"><p className="workspace-eyebrow">{tr(kind === 'jobseeker' ? '求職資料' : '服務需求資料')}</p><h1>{tr(kind === 'jobseeker' ? '求職者登記' : '僱主表格')}</h1><p>{tr(kind === 'jobseeker' ? '填寫聯絡資料、工作經驗及求職要求。' : '填寫聯絡資料、服務需要及工作安排。')}</p></div>
     <noscript><style>{'.intake-panel .form-actions{display:none}'}</style><p className="form-message">{tr('請開啟瀏覽器的 JavaScript 以完成登記及提交資料。')}</p></noscript>
-    {pendingDraft && <div className="draft-banner"><div><strong>{tr(pendingDraft.pending ? '有一份登記的提交結果尚未確認' : '此瀏覽器有一份未完成的登記')}</strong><p>{tr(pendingDraft.pending ? '請繼續草稿，重試以確認上次的提交結果。' : '可繼續填寫，或開始一份新登記。')}</p></div><div className="draft-actions"><button type="button" className="work-button secondary" disabled={Boolean(pendingDraft.pending)} onClick={() => { try { localStorage.removeItem(draftKey(kind)); } catch {} setData(queryPrefill(kind, window.location.search));clearPhoto();setCandidateIds(kind==='employer'?queryCandidateIds(window.location.search):[]); setStep(0); setReviewReached(false); setErrors({}); setPendingDraft(null); }}>{tr('重新開始')}</button><button type="button" className="work-button primary" onClick={() => { setData(pendingDraft.data); setPhoto(kind==='jobseeker'?pendingDraft.photo||null:null);replacePhotoPreview('');setCandidateIds(kind==='employer'?pendingDraft.candidateIds||[]:[]); goTo(pendingDraft.pending ? formSections.length : Math.min(Math.max(pendingDraft.step, 0), formSections.length)); setReviewReached(pendingDraft.reviewReached === true || pendingDraft.step >= formSections.length || Boolean(pendingDraft.pending)); attemptRef.current = pendingDraft.attempt || null; setPendingSubmission(Boolean(pendingDraft.pending)); setSaveDraft(true); setPendingDraft(null); }}>{tr('繼續草稿')}<ArrowRight size={16} aria-hidden="true"/></button></div></div>}
+    {pendingDraft && <div className="draft-banner"><div><strong>{tr(pendingDraft.pending ? '有一份登記的提交結果尚未確認' : '此瀏覽器有一份未完成的登記')}</strong><p>{tr(pendingDraft.pending ? '請繼續草稿，重試以確認上次的提交結果。' : '可繼續填寫，或開始一份新登記。')}</p></div><div className="draft-actions"><button type="button" className="work-button secondary" disabled={locked} onClick={() => void handleSavedDraft(true)}>{tr('重新開始')}</button><button type="button" className="work-button primary" disabled={submitting || draftUpdating || pendingSubmission} onClick={() => void handleSavedDraft(false)}>{tr('繼續草稿')}<ArrowRight size={16} aria-hidden="true"/></button></div></div>}
     <div className="intake-layout">
       <aside className="intake-side" aria-label={tr('填寫進度')}><ol className="form-progress">
         {progressLabels.map((title, index) => <li key={title} className={step === index ? 'current' : step > index ? 'finished' : ''} aria-current={step === index ? 'step' : undefined}>
@@ -331,7 +438,7 @@ export default function IntakeForm({ kind }: { kind: IntakeKind }) {
           <label className={`consent-label ${errors.consent ? 'consent-error' : ''}`}><input id="field-consent" type="checkbox" checked={data.consent === true} disabled={locked} onChange={event => change('consent', event.target.checked)} aria-invalid={Boolean(errors.consent)}/><span>{tr('我同意家合僱傭使用以上資料聯絡及安排配對，並向相關僱主或求職者提供配對所需資料。')}</span></label>{errors.consent && <p className="field-error">{tr(errors.consent)}</p>}
         </div>}
         <div className="honeypot" aria-hidden="true"><label htmlFor="intake-website">網站</label><input ref={websiteRef} id="intake-website" name="website" autoComplete="off" tabIndex={-1}/></div>
-        <div className="draft-control"><label><input type="checkbox" checked={saveDraft} disabled={locked} onChange={event => { setSaveDraft(event.target.checked); if (!event.target.checked) { try { localStorage.removeItem(draftKey(kind)); } catch {} setDraftNote(''); } }}/><span>{tr('在此瀏覽器儲存草稿')}</span></label><p aria-live="polite">{tr(pendingSubmission && saveDraft ? '提交結果尚未確認，草稿會保留至確認完成。' : draftNote || '共用裝置請勿勾選。提交成功後會移除草稿及待提交照片資料。')}</p></div>
+        <div className="draft-control"><label><input type="checkbox" checked={saveDraft} disabled={locked} onChange={event => { if (busyRef.current || locked) return; setSaveDraft(event.target.checked); if (!event.target.checked) void updateStoredDraft(null); }}/><span>{tr('在此瀏覽器儲存草稿')}</span></label><p aria-live="polite">{tr(draftNote && draftNote !== '草稿已儲存在此瀏覽器' ? draftNote : pendingSubmission && saveDraft ? '提交結果尚未確認，草稿會保留至確認完成。' : draftNote || '共用裝置請勿勾選。提交成功後會移除草稿及待提交照片資料。')}</p></div>
         <div className="form-actions"><button type="button" className="work-button secondary" disabled={step === 0 || locked} onClick={() => goTo(step - 1)}><ArrowLeft size={16} aria-hidden="true"/>{tr('上一步')}</button><button type="submit" className="work-button primary" disabled={submitting || photoUploading || Boolean(pendingDraft?.pending)}>{tr(submitting ? '正在提交…' : step === formSections.length ? pendingSubmission ? '重試確認' : submitError ? '重試提交' : '確認並提交' : reviewReached ? '返回確認資料' : '下一步')}{!submitting && <ArrowRight size={16} aria-hidden="true"/>}</button></div>
       </form>
     </div>
