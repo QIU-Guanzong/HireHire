@@ -1,3 +1,4 @@
+import { temporaryRoots } from '../lib/node/temporary-roots.mjs';
 import { DatabaseSync } from 'node:sqlite';
 import { createHash, randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
@@ -32,7 +33,7 @@ function safeRoot(input, testing) {
   if (typeof input !== 'string' || !isAbsolute(input) || input.includes('\\') || input.includes('\0')) fail('INVALID_ROOT', 'An absolute private root is required.');
   const root = resolve(input);
   if (root === sep || root.split(sep).some(part => ['public', 'release', 'releases', 'dist', '.next', '.git', 'node_modules'].includes(part))) fail('INVALID_ROOT', 'Private roots must be outside public and release directories.');
-  const forbidden = [...(testing ? [] : [resolve(process.cwd()), '/tmp', '/var/tmp']), '/dev', '/proc', '/sys', '/run', '/var/run'];
+  const forbidden = [...(testing ? [] : [resolve(process.cwd()), ...temporaryRoots]), '/dev', '/proc', '/sys', '/run', '/var/run'];
   if (forbidden.some(path => inside(root, path))) fail('INVALID_ROOT', 'A private persistent root outside the application release is required.');
   return root;
 }
