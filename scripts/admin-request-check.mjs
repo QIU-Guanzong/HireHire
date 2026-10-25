@@ -15,13 +15,15 @@ catch (error) {
   source = (await readFile(path.join(root, 'components/private-admin-shell.tsx'), 'utf8')).split('export class AdminApiError')[1].split('export function AdminNavigation')[0];
   source = 'export class AdminApiError' + source;
 }
+const validationContext = { exports: {}, URLSearchParams };
+try { vm.runInNewContext(ts.transpileModule(await readFile(path.join(root, 'lib/admin-response.ts'), 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText, validationContext); } catch (error) { if (error.code !== 'ENOENT') throw error; }
 const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
 const checks = [];
 const check = (value, label) => { assert(value, label); checks.push(label); };
 const flush = () => new Promise(resolve => setImmediate(resolve));
 function fixture(fetcher) {
   const timers = new Map(), calls = []; let timerId = 0;
-  const context = { exports: {}, AbortController, DOMException, console,
+  const context = { exports: {}, AbortController, DOMException, console, require: name => { assert.equal(name, './admin-response'); return validationContext.exports; },
     fetch: (url, init) => { calls.push({ url, init }); return fetcher(url, init); },
     setTimeout: (callback, delay) => { const id = ++timerId; timers.set(id, { callback, delay }); return id; },
     clearTimeout: id => timers.delete(id),
@@ -40,7 +42,7 @@ if (baseline) {
   await flush(); hanging.expire(); await flush();
   check(!settled && hanging.timers.size === 0, 'Baseline hung request has no deadline and never releases caller');
 } else {
-  const normal = fixture(async () => jsonResponse({ id: 'synthetic', updatedAt: 'v1' }));
+  const normal = fixture(async () => jsonResponse({ id: 'synthetic', employerId: 'employer', jobseekerId: 'jobseeker', employerName: '', employerReference: '', jobseekerName: '', jobseekerReference: '', stage: '待聯絡', notes: '', interviewAt: '', createdAt: '2026-10-25T00:00:00Z', updatedAt: '2026-10-25T00:00:01Z' }));
   const body = await normal.adminRequest('/api/admin/matches', { method: 'POST', body: 'original-envelope' });
   check(body.id === 'synthetic', 'Valid object response returns unchanged');
   check(normal.calls.length === 1 && normal.calls[0].init.body === 'original-envelope', 'Exactly one request; payload unchanged');
