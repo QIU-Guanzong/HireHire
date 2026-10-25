@@ -10,7 +10,7 @@ const identity = (value: JsonObject) => nonempty(value.id) && timestamp(value.cr
 
 function record(value: unknown): value is JsonObject {
   return object(value) && identity(value) && texts(value, ['reference', 'status', 'notes'])
-    && ['employer', 'jobseeker'].includes(String(value.kind)) && object(value.data)
+    && typeof value.kind === 'string' && ['employer', 'jobseeker'].includes(value.kind) && object(value.data)
     // Older registrations need not contain questions introduced later. Validate
     // the values that exist, without filling missing answers or rewriting data.
     && Object.values(value.data).every(item => text(item) || typeof item === 'boolean' || strings(item))
@@ -22,7 +22,7 @@ function candidate(value: unknown): value is JsonObject {
   return object(value) && identity(value) && nonempty(value.intakeId)
     && texts(value, ['reference', 'displayName', 'nationality', 'candidateType', 'age', 'education', 'currentLocation', 'yearsExperience', 'employmentType', 'availableFrom', 'expectedSalary', 'salaryUnit', 'summary', 'qualifications'])
     && ['services', 'languages', 'skills', 'workLocations'].every(key => strings(value[key]))
-    && ['draft', 'published', 'paused'].includes(String(value.state))
+    && typeof value.state === 'string' && ['draft', 'published', 'paused'].includes(value.state)
     && typeof value.consented === 'boolean' && typeof value.hasPhoto === 'boolean'
     && (value.salaryNegotiable === undefined || typeof value.salaryNegotiable === 'boolean')
     && Array.isArray(value.workExperiences) && value.workExperiences.every(item => object(item) && texts(item, ['country', 'from', 'to', 'household', 'duties', 'leavingReason']));

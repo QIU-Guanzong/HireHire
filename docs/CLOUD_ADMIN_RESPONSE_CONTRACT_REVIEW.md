@@ -28,3 +28,9 @@ This is structural response validation, not proof that a syntactically valid ser
 Tests used synthetic data and local transport only. Receipts are under ignored `work/admin-response-contracts/`; existing transport receipts are under `work/admin-response-recovery/`. The browser regression supports `--source`, `--surface=settings --mode=wrong-shape --expect-shape-bug` for the frozen-baseline reproduction and `--output` to keep its evidence separate. Temporary browsers and loopback servers were closed.
 
 Full application build, independent review and Linux deployment acceptance remain outstanding. The existing Linux EACCES/supervision authorization remains pending; no server identity, ACL, service control, CI, merge or production deployment was performed for this candidate.
+
+## Scalar guard review follow-up
+
+Independent review found that `String(value)` admitted single-element JSON arrays for record kind and candidate state. The new regression first failed on `kind: ['employer']`. Both guards now require `typeof value === 'string'` before enum membership. All valid role/state strings remain accepted; arrays (including nested arrays), null, booleans, numbers and objects are rejected in details and aggregate lists. Malformed write responses still reject without retrying.
+
+The expanded contract suite passes 119 assertions (40 additional scalar/detail/list/transport checks), along with TypeScript and affected-file lint. The earlier 64 transport, 149 browser and 688 business plus 20 actual-response results above are retained from the preceding candidate; those larger suites were not repeated for this two-guard correction. PR10 remains frozen; no next work batch or server action was started.

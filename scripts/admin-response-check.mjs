@@ -35,6 +35,24 @@ for (const [url, method, body] of routes) {
   await assert.rejects(adminRequest(url, { method }), error => error instanceof AdminApiError && error.message.includes(method === 'GET' ? '有效資料' : '未能確認'));
   check(sent === start + 1, `${method} ${url}: wrong nonempty shape rejected without automatic retry`);
 }
+for (const [field, allowed, item, detailUrl, listUrl, listBody, listKey] of [
+  ['kind', ['employer', 'jobseeker'], record, '/api/admin/records/r1', '/api/admin/records', records, 'records'],
+  ['state', ['draft', 'published', 'paused'], candidate, '/api/admin/candidates/c1', '/api/admin/candidates', { ...pages, candidates: [candidate] }, 'candidates'],
+]) {
+  for (const scalar of allowed) {
+    const current = { ...item, [field]: scalar };
+    check(valid(detailUrl, 'GET', current), `${field} scalar ${scalar} accepted in detail`);
+    check(valid(listUrl, 'GET', { ...listBody, [listKey]: [current] }), `${field} scalar ${scalar} accepted in aggregate`);
+  }
+  for (const bad of [[], [allowed[0]], [[allowed[0]]], null, true, 0, {}]) {
+    const current = { ...item, [field]: bad };
+    check(!valid(detailUrl, 'GET', current), `${field} non-string ${JSON.stringify(bad)} rejected in detail`);
+    check(!valid(listUrl, 'GET', { ...listBody, [listKey]: [current] }), `${field} non-string ${JSON.stringify(bad)} rejected in aggregate`);
+  }
+  reply = { ...item, [field]: [allowed[0]] }; const before = sent;
+  await assert.rejects(adminRequest(detailUrl, { method: 'PATCH' }), error => error instanceof AdminApiError && error.message.includes('未能確認'));
+  check(sent === before + 1, `${field} array write response rejected without retry`);
+}
 for (const [url, method, body, label] of [
   ['/api/admin/settings', 'PATCH', { ...settings, updatedAt: '' }, 'write cannot use initial empty version'],
   ['/api/admin/settings', 'GET', { ...settings, fees: [null] }, 'null fee'],
