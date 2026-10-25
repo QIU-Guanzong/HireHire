@@ -5,6 +5,7 @@ import { ArrowLeft, ArrowRight, Check, ChevronRight, FileText, Search, ShieldChe
 import { allFields, isFieldVisible, kindLabel, sections, statuses, type IntakeData, type IntakeKind, type IntakeRecord } from '@/lib/fields';
 import { IntakeDataFields, intakeFieldValue, validateIntakeFields } from './intake-form';
 import { AdminNavigation } from './private-admin-shell';
+import { AdminApiError, adminRequest } from '@/lib/admin-request';
 import { usePrivatePdfPreview } from './private-pdf-preview';
 
 type Session = { authenticated: boolean; authorized: boolean; configured: boolean; email: string | null; name?: string | null };
@@ -18,7 +19,6 @@ const followUpParts = (value: string) => { if(!value.endsWith('Z')) return {day:
 const followUpLabel = (value: string) => {const parts=followUpParts(value);return parts.day?`${parts.day}${parts.time?' '+parts.time:''}`:'未設定';};
 const formatDate = (date: string, time = false) => new Intl.DateTimeFormat('zh-HK', { timeZone: 'Asia/Hong_Kong', month: 'short', day: 'numeric', ...(time ? { year: 'numeric', hour: '2-digit', minute: '2-digit' } : {}) }).format(new Date(date));
 const displayValue = (value: IntakeRecord['data'][string] | undefined) => Array.isArray(value) ? value.join('、') : typeof value === 'string' ? value : '';
-const responseError = async (response: Response, fallback: string) => { const body = await response.json().catch(() => ({})) as { error?: string }; return body.error || fallback; };
 
 export default function AdminWorkspace() {
   const [session, setSession] = useState<Session | null>(null);
@@ -75,9 +75,7 @@ export default function AdminWorkspace() {
   const loadSession = useCallback(async () => {
     setSessionLoading(true); setSessionError('');
     try {
-      const response = await fetch('/api/admin/session', { cache: 'no-store' });
-      if (!response.ok) throw new Error(await responseError(response, '未能讀取管理帳戶，請重試。'));
-      setSession(await response.json() as Session);
+      setSession(await adminRequest<Session>('/api/admin/session'));
     } catch (caught) { setSessionError(caught instanceof Error ? caught.message : '未能讀取管理帳戶。'); }
     finally { setSessionLoading(false); }
   }, []);
@@ -93,10 +91,7 @@ export default function AdminWorkspace() {
     const params = new URLSearchParams({ q: search, kind, status, page: String(page) });
     const requestedScope = recordListScopeKey({ q: search, kind, status, page });
     if (listAsOfRef.current) params.set('asOf', listAsOfRef.current);
-    fetch(`/api/admin/records?${params}`, { signal: controller.signal, cache: 'no-store' }).then(async response => {
-      if (!response.ok) throw new Error(await responseError(response, '未能讀取登記資料，請重試。'));
-      return response.json() as Promise<RecordsResult>;
-    }).then(next => { if (!controller.signal.aborted) { listAsOfRef.current = next.asOf; setResult({ ...next, scope: requestedScope }); setExportBatch(current => Math.min(current, Math.max(1, Math.ceil(next.total / exportBatchSize)))); } }).catch(caught => { if (!controller.signal.aborted) setError(caught instanceof Error ? caught.message : '未能讀取資料。'); }).finally(() => { if (!controller.signal.aborted) { listLoadingRef.current = false; setLoading(false); } });
+    adminRequest<RecordsResult>(`/api/admin/records?${params}`, { signal: controller.signal }).then(next => { if (!controller.signal.aborted) { listAsOfRef.current = next.asOf; setResult({ ...next, scope: requestedScope }); setExportBatch(current => Math.min(current, Math.max(1, Math.ceil(next.total / exportBatchSize)))); } }).catch(caught => { if (!controller.signal.aborted) setError(caught instanceof Error ? caught.message : '未能讀取資料。'); }).finally(() => { if (!controller.signal.aborted) { listLoadingRef.current = false; setLoading(false); } });
     return () => controller.abort();
   }, [session?.authorized, search, kind, status, page, refresh]);
 
@@ -157,9 +152,7 @@ export default function AdminWorkspace() {
     loadedDrawerIdRef.current = '';
     setDrawer(record); setRecordErrors({}); setDetailLoading(true); setDetailError(''); setDetailReadError(false); setSaveNote('');
     try {
-      const response = await fetch(`/api/admin/records/${encodeURIComponent(record.id)}`, { signal: controller.signal, cache: 'no-store' });
-      if (!response.ok) throw new Error(await responseError(response, '未能讀取完整資料。'));
-      const body = await response.json() as IntakeRecord | { record: IntakeRecord };
+      const body = await adminRequest<IntakeRecord | { record: IntakeRecord }>(`/api/admin/records/${encodeURIComponent(record.id)}`, { signal: controller.signal });
       const detailRecord = 'record' in body ? body.record : body;
       if (detailRecord.id !== record.id) throw new Error('未能核對這份登記，請重新讀取。');
       if (!controller.signal.aborted) { loadedDrawerIdRef.current = record.id; setDrawer(detailRecord); setConflicts(current => current[record.id] === 'detected' ? { ...current, [record.id]: 'review' } : current); if (conflicts[record.id] === 'detected') requestAnimationFrame(() => drawerCloseRef.current?.focus()); }
@@ -184,15 +177,18 @@ export default function AdminWorkspace() {
     if(Object.keys(nextErrors).length){if(completeEditorRef.current)completeEditorRef.current.open=true;setDetailError('請檢查登記資料。');requestAnimationFrame(()=>document.getElementById(`record-field-${Object.keys(nextErrors)[0]}`)?.focus());return;}
     saveBusyRef.current = true; setSaving(true); setDetailError(''); setDetailReadError(false); setSaveNote('');
     try {
-      const response = await fetch(`/api/admin/records/${encodeURIComponent(drawer.id)}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({status:desired.status,notes:desired.notes,nextFollowUp:desired.nextFollowUp,...(dataChanged?{data:desired.data}:{}),expectedUpdatedAt: drawer.updatedAt}) });
-      if (response.status === 409) setConflicts(current => ({ ...current, [drawer.id]: 'detected' }));
-      const body = await response.json().catch(()=>({})) as IntakeRecord & {record?:IntakeRecord;error?:string;fields?:Record<string,string>};
-      if(!response.ok){if(body.fields)setRecordErrors(body.fields);throw new Error(body.error||'未能儲存更新，請重試。');}
-      const updated = body.record || body;
+      const body = await adminRequest<IntakeRecord | { record: IntakeRecord }>(`/api/admin/records/${encodeURIComponent(drawer.id)}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({status:desired.status,notes:desired.notes,nextFollowUp:desired.nextFollowUp,...(dataChanged?{data:desired.data}:{}),expectedUpdatedAt: drawer.updatedAt}) });
+      const updated = 'record' in body ? body.record : body;
       setDrawer(updated); setRecordDrafts(current => { const next = { ...current }; delete next[updated.id]; return next; });
       setConflicts(current => { const next = { ...current }; delete next[updated.id]; return next; });
       setSaveNote('更新已儲存'); setRefresh(current => current + 1);
-    } catch (caught) { setDetailError(caught instanceof Error ? caught.message : '未能儲存更新。'); }
+    } catch (caught) {
+      if (caught instanceof AdminApiError) {
+        if (caught.status === 409) setConflicts(current => ({ ...current, [drawer.id]: 'detected' }));
+        if (caught.fields) setRecordErrors(caught.fields);
+      }
+      setDetailError(caught instanceof Error ? caught.message : '未能儲存更新。');
+    }
     finally { saveBusyRef.current = false; setSaving(false); }
   };
 
