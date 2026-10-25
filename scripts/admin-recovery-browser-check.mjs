@@ -5,6 +5,8 @@ import path from 'node:path';
 import { mkdir, writeFile } from 'node:fs/promises';
 const option = name => process.argv.find(arg => arg.startsWith(`--${name}=`))?.slice(name.length + 3);
 const root = path.resolve(option('source') || process.cwd());
+const output = path.resolve(option('output') || path.join(root, 'work/admin-response-recovery'));
+const expectShapeBug = process.argv.includes('--expect-shape-bug');
 const { build } = await import(option('esbuild') || 'esbuild');
 const { chromium } = await import(option('playwright') || 'playwright');
 const components = { settings: 'private-admin-settings', records: 'admin-workspace', matches: 'private-admin-matches', candidates: 'private-admin-candidates' };
@@ -38,6 +40,7 @@ const server = http.createServer(async (req, res) => {
     const values = { ...payload }; delete values.expectedUpdatedAt;
     state.stored = { ...state.stored, ...values, ...(values.profile || {}), updatedAt: version2 };
     if (state.requests.length === 1) {
+      if (state.mode === 'wrong-shape') { send(res, 200, { ok: true }); return; }
       if (state.mode === 'invalid-json') { res.writeHead(200, { 'content-type': 'application/json' }); res.end('{broken'); return; }
       if (state.mode === 'held-body') { res.writeHead(200, { 'content-type': 'application/json' }); res.write('{"incomplete":'); return; }
       if (state.mode === 'held-headers') return;
@@ -64,7 +67,7 @@ try {
   const origin = `http://127.0.0.1:${server.address().port}`;
   browser = await chromium.launch({ executablePath: option('chromium'), headless: true });
   for (const [surface, kind] of [['settings', ''], ['records', 'employer'], ['records', 'jobseeker'], ['matches', ''], ['candidates', '']].filter(([surface]) => !option('surface') || surface === option('surface'))) {
-    for (const mode of ['invalid-json', 'held-headers', 'held-body', 'forbidden']) {
+    for (const mode of ['invalid-json', 'held-headers', 'held-body', 'forbidden', 'wrong-shape'].filter(mode => !option('mode') || mode === option('mode'))) {
       reset(surface, kind, mode);
       const context = await browser.newContext();
       // Only accelerate the production request deadline; React/debounce timing is unchanged.
@@ -77,7 +80,15 @@ try {
       else if (surface === 'records') { await page.locator('button[data-record-trigger="name"]').click(); field = page.locator('#record-notes'); button = page.getByRole('button', { name: '儲存更新', exact: true }); }
       else if (surface === 'candidates') { await page.getByRole('button', { name: '審核／修改', exact: true }).click(); field = page.locator('#candidate-field-summary'); button = page.getByRole('button', { name: '儲存簡介及狀態', exact: true }); await field.waitFor(); const publication = await page.locator('.private-publication-state option[value=published]').evaluate(element => ({ disabled: element.disabled, html: element.outerHTML })); check(publication.disabled, 'Unconsented candidate cannot select publication: ' + JSON.stringify(publication)); }
       else { await page.getByRole('button', { name: '修改跟進', exact: true }).click(); field = page.locator('#edit-match-notes'); button = page.getByRole('button', { name: '儲存跟進', exact: true }); }
-      await field.fill('合成修改保留'); await button.click();
+      await field.fill('合成修改保留');
+      const renderFailure = expectShapeBug ? page.waitForEvent('pageerror') : null;
+      await button.click();
+      if (expectShapeBug) {
+        assert.equal(surface, 'settings'); assert.equal(mode, 'wrong-shape');
+        const error = await renderFailure;
+        check(/undefined|fees|length/.test(error.message) && state.requests.length === 1, 'Frozen PR10 replaces settings with wrong-shaped success and crashes');
+        await context.close(); continue;
+      }
       await page.getByRole('alert').filter({ hasText: mode === 'forbidden' ? '合成拒絕存取' : '未能確認' }).first().waitFor();
       check(await field.inputValue() === '合成修改保留', `${surface}/${kind}/${mode}: edit retained`);
       check(await field.isEnabled() && await button.isEnabled(), `${surface}/${kind}/${mode}: form released`);
@@ -101,7 +112,7 @@ try {
       await context.close();
     }
   }
-  for (const surface of Object.keys(components).filter(surface => !option('surface') || surface === option('surface'))) for (const session of ['unconfigured', 'denied']) {
+  for (const surface of (expectShapeBug ? [] : Object.keys(components)).filter(surface => !option('surface') || surface === option('surface'))) for (const session of ['unconfigured', 'denied']) {
     reset(surface, '', 'none', session);
     const context = await browser.newContext(); const page = await context.newPage();
     await page.goto(`${origin}/?surface=${surface}`);
@@ -109,14 +120,14 @@ try {
     check(state.reads.length === 0 && state.requests.length === 0, `${surface}/${session}: gate does not request private data`);
     await context.close();
   }
-  check(unexpected.length === 0 && browserErrors.length === 0, 'No external/unexpected requests or uncaught browser errors');
+  check(unexpected.length === 0 && (expectShapeBug ? browserErrors.length === 1 : browserErrors.length === 0), 'No external/unexpected requests or uncaught browser errors');
 } catch (error) { failure = error; }
 finally {
   await browser?.close(); for (const socket of sockets) socket.destroy();
   await new Promise(resolve => server.close(resolve));
-  const report = { passed: !failure, scope: option('surface') || 'all', checks: checks.length, labels: checks, unexpected, browserErrors, failure: failure?.stack, productionRequests: 0, realRecords: 0, syntheticOnly: true };
-  await mkdir(path.join(root, 'work/admin-response-recovery'), { recursive: true });
-  await writeFile(path.join(root, 'work/admin-response-recovery/browser.json'), JSON.stringify(report, null, 2) + '\n');
+  const report = { passed: !failure, scope: option('surface') || 'all', expectedBaselineBug: expectShapeBug, checks: checks.length, labels: checks, unexpected, browserErrors, failure: failure?.stack, productionRequests: 0, realRecords: 0, syntheticOnly: true };
+  await mkdir(output, { recursive: true });
+  await writeFile(path.join(output, 'browser.json'), JSON.stringify(report, null, 2) + '\n');
   console.log(JSON.stringify({ ...report, labels: undefined }));
 }
 if (failure) process.exitCode = 1;

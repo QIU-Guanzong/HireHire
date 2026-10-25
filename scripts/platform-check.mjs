@@ -75,8 +75,17 @@ function request(path, { body, method = 'GET', auth = false, principal, headers 
   trustedTestContexts.set(result, { principal: principal || (auth ? 'admin' : null), ip: `synthetic-peer-${++ipCount}` });
   return result;
 }
+const responseContracts = process.argv.includes('--admin-response-contracts') ? await import(await moduleUrl('lib/admin-response.ts')) : null;
+let adminResponseChecks = 0;
+const adminPaths = { records: 'records', record: 'records', adminCandidates: 'candidates', adminCandidate: 'candidates', matches: 'matches', match: 'matches', settings: 'settings' };
 async function call(name, method = 'GET', body, id, auth = false, path) {
-  return routes[name][method](request(path || `/api/${name}`, { method, body, auth }), { params: Promise.resolve({ id }) });
+  const response = await routes[name][method](request(path || `/api/${name}`, { method, body, auth }), { params: Promise.resolve({ id }) });
+  if (responseContracts && response.ok && adminPaths[name]) {
+    const endpoint = `/api/admin/${adminPaths[name]}${id ? `/${encodeURIComponent(id)}` : ''}${path?.includes('?') ? '?' + path.split('?')[1] : ''}`;
+    assert(responseContracts.validAdminResponse(endpoint, method, await response.clone().json()), `Actual ${method} ${name} response must satisfy its client contract`);
+    adminResponseChecks++;
+  }
+  return response;
 }
 async function expectStatus(response, status, message) { expect(response.status === status, `${message}: expected ${status}, got ${response.status} ${response.status !== status ? await response.text() : ''}`); return response; }
 const seeker = { fullName: '私密姓名測試', phone: '+852 61234567', email: 'private@example.test', nationality: '香港', currentLocation: '香港', education: '中學', candidateType: '本地求職', age: '38', services: ['家傭','長者照顧'], languages: ['廣東話','英語'], yearsExperience: '6–10年', skills: ['煮食','長者照顧'], workHistory: '私密履歷測試內容，不可自動公開。', certificates: '私密資格內容，不可自動公開。', employmentType: '全職非住家', workLocations: ['全香港'], availableFrom: '2026-11-01', expectedSalary: '18000', salaryUnit: '每月', consent: true, publicProfileConsent: true, publicName: '阿May', publicIntroduction: '熟悉家務及長者日常照顧。' };
@@ -521,7 +530,7 @@ try {
   expect(Buffer.byteLength(JSON.stringify(longSettings))>65536,'Valid 20-item Chinese fee table exceeds former settings byte cap.');
   await expectStatus(await call('settings','PATCH',longSettings,undefined,true),200,'Valid long Chinese company settings accepted');
   }
-  const report={passed:true,checks,pdfDefaultChecks,publicSearchChecks,clientRedactionChecks,focusedOnly:pdfDefaultOnly||publicSearchOnly||clientRedactionOnly,isolatedDatabase:true,fixtureObjects:objects.size,pdfs:clientRedactionOnly?['records-client.pdf','records-full.pdf','matches-default.pdf','matches-empty.pdf','matches-full.pdf']:publicSearchOnly?[]:pdfDefaultOnly?['default-selected.pdf','empty-mode.pdf','explicit-client.pdf','default-filtered.pdf','explicit-full.pdf']:['candidate.pdf','match-client.pdf','match-full.pdf'],testedAt:new Date().toISOString()};
+  const report={passed:true,checks,adminResponseChecks,pdfDefaultChecks,publicSearchChecks,clientRedactionChecks,focusedOnly:pdfDefaultOnly||publicSearchOnly||clientRedactionOnly,isolatedDatabase:true,fixtureObjects:objects.size,pdfs:clientRedactionOnly?['records-client.pdf','records-full.pdf','matches-default.pdf','matches-empty.pdf','matches-full.pdf']:publicSearchOnly?[]:pdfDefaultOnly?['default-selected.pdf','empty-mode.pdf','explicit-client.pdf','default-filtered.pdf','explicit-full.pdf']:['candidate.pdf','match-client.pdf','match-full.pdf'],testedAt:new Date().toISOString()};
   await writeFile(clientRedactionOnly?'work/client-pdf-redaction/focused-report.json':publicSearchOnly?'work/navigation-search/focused-report.json':pdfDefaultOnly?'work/admin-pdf-default/focused-report.json':'work/platform-check/report.json',JSON.stringify(report,null,2)); console.log(JSON.stringify(report));
 } finally {
   objects.clear(); sqlite.close(); delete globalThis.__jiahePlatformEnv;

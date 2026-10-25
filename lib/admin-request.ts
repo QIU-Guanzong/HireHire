@@ -1,3 +1,5 @@
+import { validAdminResponse } from './admin-response';
+
 export class AdminApiError extends Error {
   constructor(message: string, public status: number, public fields?: Record<string, string>) { super(message); }
 }
@@ -42,7 +44,7 @@ export async function adminRequest<T>(url: string, init?: RequestInit): Promise<
             && Object.values(fields).every(value => typeof value === 'string') ? fields as Record<string, string> : undefined,
         );
       }
-      if (!object || !Object.keys(object).length) throw failure();
+      if (!object || !validAdminResponse(url, (init?.method || 'GET').toUpperCase(), object)) throw failure();
       return body as T;
     })();
     return await Promise.race([operation, interrupted]);
