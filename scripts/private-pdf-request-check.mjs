@@ -11,7 +11,7 @@ const outcome = promise => promise.then(value => ({ value }), error => ({ error 
 const valid = () => new Response('%PDF-1.4\n%%EOF', { headers: { 'content-type': 'application/pdf; charset=binary' } });
 function fixture(fetcher) {
   const timers = new Map(), calls = []; let id = 0;
-  const context = { exports: {}, AbortController, fetch: (...args) => { calls.push(args); return fetcher(...args); }, setTimeout: (callback, delay) => { timers.set(++id, { callback, delay }); return id; }, clearTimeout: key => timers.delete(key) };
+  const context = { exports: {}, AbortController, Blob, Uint8Array, fetch: (...args) => { calls.push(args); return fetcher(...args); }, setTimeout: (callback, delay) => { timers.set(++id, { callback, delay }); return id; }, clearTimeout: key => timers.delete(key) };
   vm.runInNewContext(compiled, context);
   const caller = new AbortController(); let listeners = 0;
   const add = caller.signal.addEventListener.bind(caller.signal), remove = caller.signal.removeEventListener.bind(caller.signal);

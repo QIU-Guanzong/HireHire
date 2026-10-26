@@ -1,43 +1,61 @@
 # Private PDF preview recovery
 
-Base: reviewed integration `7b672c521156574b7e5c059f961c34fb06e920cd`
-(PR8–11 union, tree `ca2a3e828105bf076c3299156a2b3e6280f90f68`).
+This revision starts from frozen PR12 head
+`0fa9acd3d377d28c51a130a8c0b5e1917ae0f4c1`. That head remains held: its
+absolute 60-second deadline canceled a continuously progressing valid PDF at
+60,030ms when completion was expected at 64s. The reviewed integration beneath
+it is `7b672c521156574b7e5c059f961c34fb06e920cd` (PR8–11 union).
 
-The preview previously remained busy indefinitely when PDF headers or bytes never
-finished. A single 60-second request deadline now covers headers, error JSON,
-PDF bytes and the signature check. Expiry cancels the owned request and exposes
-an explicit retry; known 401/403 responses still require the operator to close
-the preview and check access. No automatic retries or changes to the server's
-authorization, PDF fields, request allowlist or download acknowledgement.
+## Request contract
 
-The context ref is now updated only after a render commits. Render-time context
-comparison still immediately hides a previous document, and cancellation plus
-sequence/context checks prevent late responses from recreating it. Download
-cleanup captures its URL collection, and modal focus/scroll lifecycle depends
-on the stable preview ID rather than response-phase changes.
+- Wait at most 60 seconds without observable progress. Headers start a fresh
+  body window; each **nonempty** byte chunk renews that window. Empty chunks do
+  not renew it. There is no overall elapsed-time cutoff for streaming responses.
+- Consume both PDF and error JSON through the response's readable stream. A
+  stopped error body still preserves the known 401/403 status and cannot offer
+  an unauthorized retry. Explicit retry remains an operator action.
+- Caller cancellation and idle expiry abort only the owned request, cancel the
+  reader, release its lock, and remove the timer/caller listener. Promise racing
+  retains a bound even if a custom transport ignores cancellation. Late work
+  cannot create object URLs or change the hook's context/sequence checks.
+- A transport with no readable body/getReader cannot expose intermediate byte
+  progress. Its existing blob/JSON read uses a bounded 60-second body wait after
+  headers. This fallback can still reject a slow body whose progress is hidden;
+  it is not equivalent to progress-aware streaming. No XHR, credentials, browser
+  permissions or alternative service are introduced.
+- These are inactivity recovery rules, not a rendering SLA. A server generating
+  a PDF without sending any headers/bytes for 60 seconds can still time out.
+  API limits remain 100 selected records or 100 matches plus employer (101),
+  240,000 text characters, 500 pages, 12MiB encoded/64MiB decoded portraits.
+  None of those limits establishes an absolute total-duration product limit.
 
-Validation on Mac, 2026-10-26:
+The hook/CSS and API/PDF content/authorization code are unchanged in this
+revision. The earlier `visibleId` change only named the base's existing
+`visible?.id` dependency for lint. No popup/new-tab window ownership or cleanup
+is claimed; preview/download object-URL cleanup is separate.
 
-- Baseline browser reproduction: hanging headers and body remain busy beyond
-  the test's accelerated deadline. No actual account or registration.
-- `scripts/private-pdf-request-check.mjs`: 55 checks; each await, ignored abort,
-  late resolution, cancellation, denial bodies, valid bytes and cleanup.
-- `scripts/private-pdf-lifecycle-browser-check.mjs`: 33 checks with actual React
-  under StrictMode, 360px and reduced motion; explicit retry, close/context
-  invalidation, download acknowledgement/duplicate lock and URL cleanup.
-- TypeScript and 688 isolated business/API/PDF checks passed.
-- Repository lint: 49 existing errors and 11 existing warnings. This batch
-  removes one ref error and two effect dependency warnings; no new diagnostics.
+## Verification
 
-The browser harness isolates CSS and uses a minimal synthetic PDF: it verifies
-interaction/lifecycle, not PDF typography, full Next rendering or a physical
-phone. Its first post-fix run passed 32 functional assertions but incorrectly
-classified Chrome's local PDF viewer resources as external requests. The
-corrected harness permits only those exact browser-local resource origins in
-addition to loopback/blob, and still rejects foreign HTTP(S). Both receipts are
-retained under ignored `work/private-pdf-lifecycle/`.
+- `private-pdf-progress-check.mjs`: first reproduced the frozen total-deadline
+  defect, then checked streaming/empty chunks, independent header/body waits,
+  body and error-JSON stalls, cancellation, denied statuses and fallback.
+- With `--maximum-fixtures=<frozen synthetic output directory>`, the same test
+  transfers four already-verified 100/101-record PDFs through 294s virtual
+  progressing streams and separately tests each stalled body. It does not
+  regenerate those unchanged API fixtures or call production.
+- `private-pdf-real-stream-check.mjs <synthetic.pdf>` uses real clocks. The same
+  4,378,781-byte fixture previously rejected now completes in about 64.16 seconds,
+  with all 65 chunks and every byte preserved. This is a synthetic transport,
+  not a Linux capacity measurement.
+- `private-pdf-request-check.mjs` retains the original 55 fallback/transport
+  negative controls. The expanded actual-React browser harness checks normal
+  browser streaming, pending unmount, context changes and A/B out-of-order
+  completion. `--production-css` loads the exact local build's compiled CSS
+  and font; without it CSS is isolated. Neither mode claims full routing,
+  popup ownership or a physical phone test.
 
-Provide the existing test tools via `--esbuild`, `--playwright`, and `--chromium`
-when running the browser script. It owns and closes its loopback server and
-browser; `--expect-timeout-bug --source=<baseline>` reproduces the old behavior.
-No new dependencies, production requests, data access, CI or deployment.
+Use existing authorized esbuild/Playwright/Chrome paths via the browser script's
+options, and use only synthetic PDF fixtures. Task receipts stay under ignored
+`work/pdf-progress/`. The repository's existing lint baseline is not all green.
+Linux supervision and shared deployment ownership remain unresolved; code,
+checks, independent review, merge and production release are separate stages.
