@@ -40,6 +40,8 @@ const server = http.createServer(async (req, res) => {
     const values = { ...payload }; delete values.expectedUpdatedAt;
     state.stored = { ...state.stored, ...values, ...(values.profile || {}), updatedAt: version2 };
     if (state.requests.length === 1) {
+      if (state.mode.startsWith('mixed-')) { const values = { 'mixed-null': null, 'mixed-string': 'unexpected', 'mixed-array': [], 'mixed-boolean': false, 'mixed-record': state.stored }; send(res, 200, { ...state.stored, record: values[state.mode] }); return; }
+      if (state.mode === 'invalid-version') { send(res, 200, { ...state.stored, updatedAt: '2026-10-25' }); return; }
       if (state.mode === 'wrong-shape') { send(res, 200, { ok: true }); return; }
       if (state.mode === 'invalid-json') { res.writeHead(200, { 'content-type': 'application/json' }); res.end('{broken'); return; }
       if (state.mode === 'held-body') { res.writeHead(200, { 'content-type': 'application/json' }); res.write('{"incomplete":'); return; }
@@ -67,7 +69,7 @@ try {
   const origin = `http://127.0.0.1:${server.address().port}`;
   browser = await chromium.launch({ executablePath: option('chromium'), headless: true });
   for (const [surface, kind] of [['settings', ''], ['records', 'employer'], ['records', 'jobseeker'], ['matches', ''], ['candidates', '']].filter(([surface]) => !option('surface') || surface === option('surface'))) {
-    for (const mode of ['invalid-json', 'held-headers', 'held-body', 'forbidden', 'wrong-shape'].filter(mode => !option('mode') || mode === option('mode'))) {
+    for (const mode of ['invalid-json', 'held-headers', 'held-body', 'forbidden', 'wrong-shape', ...(surface === 'records' ? ['mixed-null', 'mixed-string', 'mixed-array', 'mixed-boolean', 'mixed-record', 'invalid-version'] : [])].filter(mode => !option('mode') || mode === option('mode'))) {
       reset(surface, kind, mode);
       const context = await browser.newContext();
       // Only accelerate the production request deadline; React/debounce timing is unchanged.

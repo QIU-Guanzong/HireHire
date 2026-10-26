@@ -8,8 +8,22 @@ const timestamp = (value: unknown) => nonempty(value) && Number.isFinite(Date.pa
 const count = (value: unknown) => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
 const identity = (value: JsonObject) => nonempty(value.id) && timestamp(value.createdAt) && timestamp(value.updatedAt);
 
+// Registration versions are sent back verbatim to PATCH, which requires UTC milliseconds.
+const recordVersion = (value: unknown) => text(value)
+  && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value)
+  && Number.isFinite(Date.parse(value)) && new Date(value).toISOString() === value;
+const recordKeys = ['id', 'reference', 'kind', 'data', 'status', 'notes', 'createdAt', 'updatedAt', 'nextFollowUp', 'photoId', 'requestedCandidateIds'];
+
+// One wire format boundary for every registration detail consumer. A wrapper
+// cannot also carry registration fields; neither representation wins silently.
+export function unwrapAdminRecordResponse(value: unknown): unknown {
+  if (!object(value) || !('record' in value)) return value;
+  if (recordKeys.some(key => key in value) || !object(value.record)) return undefined;
+  return value.record;
+}
+
 function record(value: unknown): value is JsonObject {
-  return object(value) && identity(value) && texts(value, ['reference', 'status', 'notes'])
+  return object(value) && !('record' in value) && identity(value) && recordVersion(value.updatedAt) && texts(value, ['reference', 'status', 'notes'])
     && typeof value.kind === 'string' && ['employer', 'jobseeker'].includes(value.kind) && object(value.data)
     // Older registrations need not contain questions introduced later. Validate
     // the values that exist, without filling missing answers or rewriting data.
@@ -62,8 +76,8 @@ export function validAdminResponse(url: string, method: string, value: unknown):
   const detail = /^\/api\/admin\/(records|candidates|matches)\/([^/]+)$/.exec(pathname);
   if (!detail || !['GET', 'PATCH'].includes(method) || detail[1] === 'matches' && method !== 'PATCH') return false;
   // The registration workspace also supports the historical { record } envelope.
-  const current = detail[1] === 'records' && object(value.record) ? value.record : value;
+  const current = detail[1] === 'records' ? unwrapAdminRecordResponse(value) : value;
   const valid = detail[1] === 'records' ? record(current) : detail[1] === 'candidates' ? candidate(current) : match(current);
-  try { return valid && current.id === decodeURIComponent(detail[2]); }
+  try { return valid && object(current) && current.id === decodeURIComponent(detail[2]); }
   catch { return false; }
 }

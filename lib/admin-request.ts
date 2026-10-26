@@ -1,4 +1,4 @@
-import { validAdminResponse } from './admin-response';
+import { unwrapAdminRecordResponse, validAdminResponse } from './admin-response';
 
 export class AdminApiError extends Error {
   constructor(message: string, public status: number, public fields?: Record<string, string>) { super(message); }
@@ -45,7 +45,7 @@ export async function adminRequest<T>(url: string, init?: RequestInit): Promise<
         );
       }
       if (!object || !validAdminResponse(url, (init?.method || 'GET').toUpperCase(), object)) throw failure();
-      return body as T;
+      return (/^\/api\/admin\/records\/[^/?]+(?:\?|$)/.test(url) ? unwrapAdminRecordResponse(body) : body) as T;
     })();
     return await Promise.race([operation, interrupted]);
   } catch (error) {

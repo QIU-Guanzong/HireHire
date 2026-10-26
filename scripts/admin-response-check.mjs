@@ -12,7 +12,7 @@ const client = { exports: {}, AbortController, setTimeout, clearTimeout, require
 vm.runInNewContext(compile(await readFile('lib/admin-request.ts', 'utf8')), client);
 const { validAdminResponse: valid } = validators.exports, { adminRequest, AdminApiError } = client.exports;
 const checks = [], check = (ok, label) => { assert(ok, label); checks.push(label); };
-const time = '2026-10-25T00:00:00Z';
+const time = '2026-10-25T00:00:00.000Z';
 const settings = { phone: '', whatsapp: '', email: '', address: '', hours: '', fees: [{ service: '合成服務', amount: '', unit: '', notes: '' }], updatedAt: time };
 const record = { id: 'r1', reference: 'LOCAL-R', kind: 'employer', data: { legacyQuestion: 'preserved', consent: true, services: [] }, status: '新登記', notes: '', createdAt: time, updatedAt: time };
 const candidate = { id: 'c1', intakeId: 'r2', reference: 'LOCAL-C', state: 'draft', consented: false, hasPhoto: false, createdAt: time, updatedAt: time, displayName: '合成人選', nationality: '', candidateType: '', age: '', education: '', currentLocation: '', yearsExperience: '', employmentType: '', availableFrom: '', expectedSalary: '', salaryUnit: '', summary: '', qualifications: '', services: [], languages: [], skills: [], workLocations: [], workExperiences: [] };
@@ -30,11 +30,32 @@ for (const [url, method, body] of routes) {
   check(valid(url, method, body), `${method} ${url}: current/compatible legacy shape accepted`);
   check(valid(url, method, { ...body, futureField: { untouched: true } }), `${method} ${url}: additive fields accepted without normalization`);
   reply = body; const before = sent;
-  check(JSON.stringify(await adminRequest(url, { method })) === JSON.stringify(body) && sent === before + 1, `${method} ${url}: valid response returned unchanged, once`);
+  check(JSON.stringify(await adminRequest(url, { method })) === JSON.stringify(body.record || body) && sent === before + 1, `${method} ${url}: valid response returned in the consumer format, once`);
   reply = { ok: true }; const start = sent;
   await assert.rejects(adminRequest(url, { method }), error => error instanceof AdminApiError && error.message.includes(method === 'GET' ? '有效資料' : '未能確認'));
   check(sent === start + 1, `${method} ${url}: wrong nonempty shape rejected without automatic retry`);
 }
+// Regressions from independent review: malformed envelopes never reach success.
+for (const method of ['GET', 'PATCH']) {
+  for (const mixed of [null, 'unexpected', [], false, record]) {
+    reply = { ...record, record: mixed }; const before = sent;
+    check(!valid('/api/admin/records/r1', method, reply), `${method}: mixed envelope rejected (${JSON.stringify(mixed)})`);
+    await assert.rejects(adminRequest('/api/admin/records/r1', { method }), error => error instanceof AdminApiError);
+    check(sent === before + 1, `${method}: mixed envelope has no automatic retry`);
+  }
+  for (const bad of ['2026-10-25', '2026-10-25T00:00:00Z', '2026-10-25T08:00:00.000+08:00', '2026-02-30T00:00:00.000Z', 'invalid']) {
+    reply = { ...record, updatedAt: bad }; const before = sent;
+    check(!valid('/api/admin/records/r1', method, reply), `${method}: noncanonical record version rejected (${bad})`);
+    await assert.rejects(adminRequest('/api/admin/records/r1', { method }), error => error instanceof AdminApiError);
+    check(sent === before + 1, `${method}: invalid version has no automatic retry`);
+  }
+  reply = { record, metadata: 'additive wrapper metadata' };
+  const unwrapped = await adminRequest('/api/admin/records/r1', { method });
+  check(unwrapped.id === record.id && unwrapped.kind === record.kind && unwrapped.updatedAt === time, `${method}: legacy wrapper supports direct consumers`);
+}
+check(!valid('/api/admin/records/r1', 'GET', { record: { ...record, record } }), 'Nested envelope rejected');
+check(valid('/api/admin/records/r1', 'GET', { ...record, createdAt: '2026-10-25' }), 'Display-only historical creation dates remain accepted');
+check(!valid('/api/admin/records', 'GET', { ...records, records: [{ ...record, updatedAt: '2026-10-25' }] }), 'Lists reject unusable write versions');
 for (const [field, allowed, item, detailUrl, listUrl, listBody, listKey] of [
   ['kind', ['employer', 'jobseeker'], record, '/api/admin/records/r1', '/api/admin/records', records, 'records'],
   ['state', ['draft', 'published', 'paused'], candidate, '/api/admin/candidates/c1', '/api/admin/candidates', { ...pages, candidates: [candidate] }, 'candidates'],

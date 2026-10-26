@@ -152,8 +152,8 @@ export default function AdminWorkspace() {
     loadedDrawerIdRef.current = '';
     setDrawer(record); setRecordErrors({}); setDetailLoading(true); setDetailError(''); setDetailReadError(false); setSaveNote('');
     try {
-      const body = await adminRequest<IntakeRecord | { record: IntakeRecord }>(`/api/admin/records/${encodeURIComponent(record.id)}`, { signal: controller.signal });
-      const detailRecord = 'record' in body ? body.record : body;
+      const body = await adminRequest<IntakeRecord>(`/api/admin/records/${encodeURIComponent(record.id)}`, { signal: controller.signal });
+      const detailRecord = body;
       if (detailRecord.id !== record.id) throw new Error('未能核對這份登記，請重新讀取。');
       if (!controller.signal.aborted) { loadedDrawerIdRef.current = record.id; setDrawer(detailRecord); setConflicts(current => current[record.id] === 'detected' ? { ...current, [record.id]: 'review' } : current); if (conflicts[record.id] === 'detected') requestAnimationFrame(() => drawerCloseRef.current?.focus()); }
     } catch (caught) { if (!controller.signal.aborted) { setDetailError(caught instanceof Error ? caught.message : '未能讀取完整資料。'); setDetailReadError(true); } }
@@ -177,8 +177,8 @@ export default function AdminWorkspace() {
     if(Object.keys(nextErrors).length){if(completeEditorRef.current)completeEditorRef.current.open=true;setDetailError('請檢查登記資料。');requestAnimationFrame(()=>document.getElementById(`record-field-${Object.keys(nextErrors)[0]}`)?.focus());return;}
     saveBusyRef.current = true; setSaving(true); setDetailError(''); setDetailReadError(false); setSaveNote('');
     try {
-      const body = await adminRequest<IntakeRecord | { record: IntakeRecord }>(`/api/admin/records/${encodeURIComponent(drawer.id)}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({status:desired.status,notes:desired.notes,nextFollowUp:desired.nextFollowUp,...(dataChanged?{data:desired.data}:{}),expectedUpdatedAt: drawer.updatedAt}) });
-      const updated = 'record' in body ? body.record : body;
+      const body = await adminRequest<IntakeRecord>(`/api/admin/records/${encodeURIComponent(drawer.id)}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({status:desired.status,notes:desired.notes,nextFollowUp:desired.nextFollowUp,...(dataChanged?{data:desired.data}:{}),expectedUpdatedAt: drawer.updatedAt}) });
+      const updated = body;
       setDrawer(updated); setRecordDrafts(current => { const next = { ...current }; delete next[updated.id]; return next; });
       setConflicts(current => { const next = { ...current }; delete next[updated.id]; return next; });
       setSaveNote('更新已儲存'); setRefresh(current => current + 1);
