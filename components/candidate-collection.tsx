@@ -18,8 +18,8 @@ export function CandidateCollection({ mode }: { mode: CollectionMode }) {
     if (mode === 'compare') {
       const params = new URLSearchParams(window.location.search);
       if (params.has('ids')) {
-        const idsFromUrl = candidateIds(params.get('ids'), 3); selection.write('compare', idsFromUrl);
-        if (candidateIds(params.get('ids')).length > 3) selection.setMessage('每次最多比較3位，已保留前3位人選。');
+        const idsFromUrl = candidateIds(params.get('ids'), 3), persisted = selection.write('compare', idsFromUrl);
+        if (persisted && candidateIds(params.get('ids')).length > 3) selection.setMessage('每次最多比較3位，已保留前3位人選。');
         window.history.replaceState(null, '', `/compare${idsFromUrl.length ? `?ids=${encodeURIComponent(idsFromUrl.join(','))}` : ''}`);
       }
     }
@@ -36,10 +36,11 @@ export function CandidateCollection({ mode }: { mode: CollectionMode }) {
   }, [signature, selection.ready, retry]);
   const current = candidates.filter(candidate => ids.includes(candidate.id)), missing = loading || error ? [] : ids.filter(id => !current.some(candidate => candidate.id === id));
   const writeCollection = (next: string[]) => {
-    selection.write(mode === 'saved' ? 'saved' : 'compare', next);
+    const persisted = selection.write(mode === 'saved' ? 'saved' : 'compare', next);
     if (mode === 'compare') window.history.replaceState(null, '', `/compare${next.length ? `?ids=${encodeURIComponent(next.join(','))}` : ''}`);
+    return persisted;
   };
-  const remove = (id: string) => { focusAfterRemove.current = true; writeCollection(ids.filter(item => item !== id)); selection.setMessage(mode === 'saved' ? '已取消收藏。' : '已移出比較。'); };
+  const remove = (id: string) => { focusAfterRemove.current = true; if (writeCollection(ids.filter(item => item !== id))) selection.setMessage(mode === 'saved' ? '已取消收藏。' : '已移出比較。'); };
   const title = tr(mode === 'saved' ? '已收藏人選' : '比較人選');
   const compareRows: { label: string; value: (candidate: CandidatePublic) => ReactNode }[] = [
     { label: '服務類別', value: c => c.services.map(tr).join('、') || tr('待確認') },
@@ -63,7 +64,7 @@ export function CandidateCollection({ mode }: { mode: CollectionMode }) {
     <div className="candidate-page-heading"><div><p className="candidate-breadcrumb"><a href="/">{tr('首頁')}</a><span aria-hidden="true">／</span><a href="/candidates">{tr('搜尋人選')}</a><span aria-hidden="true">／</span>{title}</p><h1>{title}</h1><p>{tr(mode === 'saved' ? '收藏保存在此瀏覽器，方便稍後查看。最多可收藏30位。' : '最多比較3位，查看經驗、工作意向及期望薪金。')}</p></div><CandidateUtilityLinks selection={selection} /></div>
     <CandidateNoScript /><p className="candidate-status" role="status">{loading ? tr('正在載入人選…') : tr(selection.message)}</p>
     {error ? <div className="candidate-error" role="alert"><p>{tr(error)}</p><button className="button secondary" type="button" onClick={() => setRetry(retry + 1)}>{tr('重新載入')}</button></div> : <>
-      {missing.length > 0 && <div className="candidate-unavailable-notice"><p>{tr(`${missing.length}位人選暫未能查看資料。`)}</p><button type="button" onClick={() => { focusAfterRemove.current = true; writeCollection(ids.filter(id => !missing.includes(id))); selection.setMessage('已移除未能查看的人選。'); }}>{tr('移除這些人選')}</button></div>}
+      {missing.length > 0 && <div className="candidate-unavailable-notice"><p>{tr(`${missing.length}位人選暫未能查看資料。`)}</p><button type="button" onClick={() => { focusAfterRemove.current = true; if (writeCollection(ids.filter(id => !missing.includes(id)))) selection.setMessage('已移除未能查看的人選。'); }}>{tr('移除這些人選')}</button></div>}
       {!loading && current.length === 0 && <div className="candidate-empty"><h2 ref={collectionHeading} tabIndex={-1}>{tr(mode === 'saved' ? '還沒有可查看的收藏' : '尚未選擇可比較的人選')}</h2><p>{tr(mode === 'saved' ? '在人選履歷按「收藏」，即可保留在此瀏覽器。' : '在人選履歷按「加入比較」，最多選擇3位。')}</p><a className="button primary" href="/candidates">{tr('搜尋人選')}</a><a className="candidate-text-link" href="/employer">{tr('直接填寫聘用需要')}</a></div>}
       {current.length > 0 && mode === 'saved' && <><div className="candidate-collection-toolbar"><h2>{tr(`${current.length}位已收藏人選`)}</h2><a href="/candidates" className="candidate-text-link">{tr('繼續搜尋')} →</a></div><div className="candidate-grid candidate-saved-grid">{current.map(candidate => <CandidateCard candidate={candidate} key={candidate.id} selection={selection} />)}</div></>}
       {current.length > 0 && mode === 'compare' && <>

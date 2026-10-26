@@ -24,17 +24,19 @@ export function useCandidateSelections() {
     read(); window.addEventListener('storage', read); window.addEventListener(selectionEvent, read);
     return () => { window.removeEventListener('storage', read); window.removeEventListener(selectionEvent, read); };
   }, []);
-  const write = (kind: 'saved' | 'compare', next: string[]) => {
+  // Keep the in-memory choice even if persistence fails. Callers must not
+  // replace that warning with a success message when this returns false.
+  const write = (kind: 'saved' | 'compare', next: string[]): boolean => {
     const setter = kind === 'saved' ? setSaved : setCompared, key = kind === 'saved' ? savedStorageKey : compareStorageKey;
     setter(next);
-    try { localStorage.setItem(key, JSON.stringify(next)); window.dispatchEvent(new Event(selectionEvent)); }
-    catch { setMessage('此瀏覽器未能保存選擇，關閉頁面後可能不會保留。'); }
+    try { localStorage.setItem(key, JSON.stringify(next)); window.dispatchEvent(new Event(selectionEvent)); return true; }
+    catch { setMessage('此瀏覽器未能保存選擇，關閉頁面後可能不會保留。'); return false; }
   };
   const toggle = (kind: 'saved' | 'compare', id: string) => {
     const current = kind === 'saved' ? saved : compared, maximum = kind === 'saved' ? 30 : 3;
-    if (current.includes(id)) { write(kind, current.filter(item => item !== id)); setMessage(kind === 'saved' ? '已取消收藏。' : '已移出比較。'); return; }
+    if (current.includes(id)) { if (write(kind, current.filter(item => item !== id))) setMessage(kind === 'saved' ? '已取消收藏。' : '已移出比較。'); return; }
     if (current.length >= maximum) { setMessage(kind === 'saved' ? '最多可收藏30位人選，請先移除部分收藏。' : '最多可比較3位人選，請先移除一位。'); return; }
-    write(kind, [...current, id]); setMessage(kind === 'saved' ? '已加入收藏。' : `已加入比較，共${current.length + 1}位。`);
+    if (write(kind, [...current, id])) setMessage(kind === 'saved' ? '已加入收藏。' : `已加入比較，共${current.length + 1}位。`);
   };
   return { saved, compared, ready, message, setMessage, toggle, write };
 }
@@ -106,7 +108,7 @@ export function CandidateUtilityLinks({ selection }: { selection: CandidateSelec
 export function CandidateSelectionBar({ selection }: { selection: CandidateSelection }) {
   const {locale}=useLocale(),tr=(value:string)=>t(locale,value);
   if (!selection.compared.length) return null;
-  return <aside className="candidate-selection-bar" aria-label={tr('比較清單')}><span>{tr(`已選${selection.compared.length}位人選`)}</span><a className="button secondary" href={compareLink(selection.compared)}>{tr('比較資料')}</a><a className="button primary" href={employerLink(selection.compared)}>{tr('提交聘用需要')}</a><button className="candidate-clear" type="button" onClick={() => { selection.write('compare', []); selection.setMessage('已清空比較清單。'); }}>{tr('清空')}</button></aside>;
+  return <aside className="candidate-selection-bar" aria-label={tr('比較清單')}><span>{tr(`已選${selection.compared.length}位人選`)}</span><a className="button secondary" href={compareLink(selection.compared)}>{tr('比較資料')}</a><a className="button primary" href={employerLink(selection.compared)}>{tr('提交聘用需要')}</a><button className="candidate-clear" type="button" onClick={() => { if (selection.write('compare', [])) selection.setMessage('已清空比較清單。'); }}>{tr('清空')}</button></aside>;
 }
 export function CandidateNoScript() { return <noscript><style>{'.candidate-status,.candidate-search-layout,.candidate-utility{display:none!important}'}</style><div className="candidate-notice">請啟用 JavaScript 查看及選擇人選。你也可以先查看<a href="/services">服務介紹</a>。</div></noscript>; }
 export function CandidateEmpty({ filtered = false, employerHref = '/employer', onClearFilters }: { filtered?: boolean; employerHref?: string; onClearFilters: () => void }) {
