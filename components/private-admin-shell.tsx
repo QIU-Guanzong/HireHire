@@ -1,16 +1,9 @@
 "use client";
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { adminRequest } from '@/lib/admin-request';
+export { adminRequest, AdminApiError } from '@/lib/admin-request';
 import './private-admin.css';
 
-export class AdminApiError extends Error {
-  constructor(message: string, public status: number, public fields?: Record<string, string>) { super(message); }
-}
-export async function adminRequest<T>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, { cache: 'no-store', ...init });
-  const body = await response.json().catch(() => ({})) as T & { error?: string; fields?: Record<string, string> };
-  if (!response.ok) throw new AdminApiError(body.error || '暫時未能處理，請重試。', response.status, body.fields);
-  return body;
-}
 export function AdminNavigation({ active }: { active: string }) {
   return <nav className="private-admin-nav" aria-label="後台功能">{[['/admin','登記資料'],['/admin/candidates','人選管理'],['/admin/matches','配對跟進'],['/admin/settings','聯絡與收費設定']].map(([href,label]) => <a key={href} href={href} aria-current={active === href ? 'page' : undefined}>{label}</a>)}</nav>;
 }

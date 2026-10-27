@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { PrivatePdfError, privatePdfRequest } from '@/lib/private-pdf-request';
 import './private-pdf-preview.css';
 
 export type PdfPreviewRequest = {
@@ -44,7 +45,9 @@ export function usePrivatePdfPreview(contextKey: string): {
   const previewUrlRef = useRef<string | null>(null), downloadUrlsRef = useRef(new Map<string, number>());
   const focusFrameRef = useRef<number | null>(null);
   const acknowledgedRef = useRef(false), downloadLockRef = useRef(false), lockTimerRef = useRef<number | null>(null);
-  contextRef.current = contextKey;
+  // Publish only committed context, never a speculative render. The visible
+  // state below still hides an old document immediately when context changes.
+  useLayoutEffect(() => { contextRef.current = contextKey; }, [contextKey]);
 
   const publish = useCallback((next: PreviewState) => {
     stateRef.current = next;
@@ -73,10 +76,11 @@ export function usePrivatePdfPreview(contextKey: string): {
 
   useEffect(() => {
     mountedRef.current = true;
+    const downloadUrls = downloadUrlsRef.current;
     return () => {
       mountedRef.current = false; clearPreview(false);
-      downloadUrlsRef.current.forEach((timer, url) => { window.clearTimeout(timer); URL.revokeObjectURL(url); });
-      downloadUrlsRef.current.clear();
+      downloadUrls.forEach((timer, url) => { window.clearTimeout(timer); URL.revokeObjectURL(url); });
+      downloadUrls.clear();
     };
   }, [clearPreview]);
   useEffect(() => {
@@ -95,23 +99,14 @@ export function usePrivatePdfPreview(contextKey: string): {
     const current = () => mountedRef.current && !controller.signal.aborted && sequenceRef.current === id && contextRef.current === capturedContext;
     publish({ ...base, phase: 'loading' });
     const pending = (async () => {
-      let retryable = true;
       try {
-        const response = await fetch(requestUrl(snapshot), { cache: 'no-store', credentials: 'same-origin', signal: controller.signal });
-        if (!response.ok) {
-          retryable = ![401, 403].includes(response.status);
-          const body = await response.json().catch(() => ({})) as { error?: string };
-          throw new Error(typeof body.error === 'string' ? body.error : '未能取得PDF檔案，請重試。');
-        }
-        if (!/^application\/pdf(?:;|$)/i.test(response.headers.get('Content-Type')?.trim() || '')) throw new Error('未能取得PDF檔案，請重試。');
-        const blob = await response.blob();
-        if (!blob.size || await blob.slice(0, 5).text() !== '%PDF-') throw new Error('未能取得PDF檔案，請重試。');
+        const { response, blob } = await privatePdfRequest(requestUrl(snapshot), controller.signal);
         if (!current()) return;
         const url = URL.createObjectURL(blob); previewUrlRef.current = url;
         const count = Number(response.headers.get('X-Export-Records'));
         publish({ ...base, phase: 'ready', blob, url, filename: pdfFilename(response.headers.get('Content-Disposition'), snapshot), ...(Number.isInteger(count) && count > 0 ? { recordCount: count } : {}) });
       } catch (error) {
-        if (current()) publish({ ...base, phase: 'error', message: error instanceof Error ? error.message : '未能取得PDF檔案，請重試。', retryable });
+        if (current()) publish({ ...base, phase: 'error', message: error instanceof Error ? error.message : '未能取得PDF檔案，請重試。', retryable: !(error instanceof PrivatePdfError && [401, 403].includes(error.status)) });
       } finally {
         if (sequenceRef.current === id) { controllerRef.current = null; promiseRef.current = null; }
       }
@@ -123,14 +118,15 @@ export function usePrivatePdfPreview(contextKey: string): {
   // A changed context removes the old document during render, before the
   // cleanup effect can run or an earlier response can finish.
   const visible = state?.contextKey === contextKey ? state : null;
+  const visibleId = visible?.id;
   useEffect(() => {
-    if (!visible || !dialogRef.current) return;
+    if (visibleId === undefined || !dialogRef.current) return;
     const originalOverflow = window.document.body.style.overflow;
     window.document.body.style.overflow = 'hidden';
     if (!dialogRef.current.open) dialogRef.current.showModal();
     closeButtonRef.current?.focus({ preventScroll: true });
     return () => { window.document.body.style.overflow = originalOverflow; };
-  }, [visible?.id]);
+  }, [visibleId]);
 
   const download = () => {
     const document = stateRef.current;
