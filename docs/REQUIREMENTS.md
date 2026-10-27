@@ -70,4 +70,19 @@ The initial handler-only audit, frozen as `ba159453`, has the following evidence
 
 Before releasing this new patch, obtain independent review and the applicable rendered form/browser and exact-runtime release evidence. Previous Linux/full-page tests belong to the preceding release and are not credited to this patch. No real-model, physical-phone or real-user acceptance was performed in this audit. Lint is not reported as green: the preceding release recorded 49 errors / 11 warnings repository-wide, and those totals have not been re-measured here. A scoped check of the changed component reports 4 errors / 3 warnings with exactly the same diagnostic messages as the base (line locations shift); the new response harness has 0 errors / 0 warnings. See `scoped-eslint-comparison.json`.
 
-Source-observed follow-up, not fixed or reproduced here: the photo upload path has an unmount abort but no explicit deadline covering request and response-body parsing (`components/intake-form.tsx`, upload handler). A hung upload could keep its UI busy. Confirm it with a synthetic stall before changing behaviour; retain ownership/claim semantics and avoid retrying an uncertain upload automatically. This is separate from the now-validated registration receipt guard.
+The initial audit recorded the photo upload deadline as a source-observed follow-up. It was subsequently reproduced and addressed in a separate local candidate based on PR15; this does not change PR15 or the deployed version.
+
+### Photo upload recovery: separate local candidate
+
+| Transition | Contract and acceptance |
+| --- | --- |
+| Select → decode/encode | A single 30-second deadline starts before processing. A stalled decoder or canvas callback releases the UI and source object URL without starting a network upload. Oversize/type validation remains unchanged. |
+| Request/response body stalls | Abort and settle the stage even if an underlying promise ignores cancellation. Show an unconfirmed result; preserve existing photo, form text and registration attempt. Do not automatically retry. |
+| Successful upload response | Accept only an object with string `id`/`token` matching the format accepted by `validateIntake`. Extra response fields are tolerated. Invalid/missing/object/array credentials cannot replace or enter the saved photo claim. |
+| Explicit reselect | Start one new photo request, including for the same file. A synchronous ref prevents queued file events and submission during an active upload. Replace the prior photo only after confirmed success; registration key remains unchanged until the existing registration logic requires a new envelope. |
+| Unmount or draft restore/restart | Revoke upload ownership before aborting. Late completion cannot update the replacement form/draft. Restore retains the selected saved draft's claim; restart clears its owned draft/form while preserving the existing session-attempt policy. |
+| Completed upload | Clear the deadline/listener; a later clock tick must not turn confirmed success into an error. |
+
+Backend contract remains `POST /api/intake-photo` → HTTP 201 `{id,token}`. Upload and intake are different operations: uploads are not idempotent and may leave unclaimed private objects after a lost response. Unclaimed metadata expires after 24 hours; cleanup is opportunistic during later uploads, not a guaranteed scheduled deletion at exactly 24 hours. Existing photo ownership and atomic attachment checks remain unchanged. No backend endpoint, schema or cleanup policy changes in this candidate.
+
+Reproduction: actual React/Chrome header/body stalls, 22 baseline assertions; a second counterexample demonstrated late attachment after restore/restart (14 assertions). Fixed browser checks and the helper's cancellation/listener probes are saved separately under ignored `work/photo-upload-recovery/`; see the candidate completion receipt for final counts and source hashes. Generated pixels and a loopback receiver only; no backend registration or real photograph is used. The component browser fixture is not full Next/Linux validation, and the fixed candidate is not deployed.

@@ -19,6 +19,7 @@ The primary journey is candidate selection (optional) → employer/jobseeker for
 | State | UI requirement | Source / check |
 | --- | --- | --- |
 | Editing | Retain answers when going back; saving a browser draft is opt-in. Warn if persistence fails. | `components/intake-form.tsx`; draft and locale regression scripts |
+| Photo processing/upload | Bound decoding, JPEG encoding, request and response-body reading to 30 seconds. A local processing timeout differs from an unconfirmed server upload. Retain an existing photo claim on failure; only a valid new claim replaces it. Draft restore/restart and unmount cancel the superseded upload. | `components/intake-form.tsx`, `lib/photo-upload.ts`; synthetic browser fault injection |
 | Submitting | Prevent concurrent clicks; retain the exact attempt and attachment claim. | Submit handler; `scripts/intake-response-check.mjs` |
 | Unconfirmed result | A timeout or malformed success response is not a rejection. Keep the original envelope/key; offer an explicit confirmation retry, without an automatic new submission. | Submit handler and `/api/intake` idempotency contract |
 | Confirmed receipt | Show success only for a successful HTTP response with a non-empty string reference. Clear only the owned draft. A receipt means the registration was stored, not that staff contacted or placed someone. | `app/api/intake/route.ts`; response regression |
@@ -55,3 +56,14 @@ This audit adds no model endpoint, paid model, prompt framework or automated app
 ## Review boundaries
 
 Document checks, handler-level regression, rendered browser interaction, physical-device testing and production acceptance are separate evidence. Record the source SHA and runtime for each. A warning-free style check or a screenshot cannot establish API authorization, durable storage or successful submission. Release checks and private transport requirements remain in [AGENTS.md](AGENTS.md) and [GCP handoff](docs/GCP_MIGRATION_HANDOFF.md).
+
+## Photo recovery candidate (separate from PR15)
+
+The 2026-10-27 photo audit reproduced a stalled upload that kept the picker and next button disabled, and a late upload result attaching after the user restored/restarted a draft. The new local candidate bounds the processing/upload lifecycle and prevents a superseded upload from updating the chosen draft. It does not alter the server upload API or claim expiry.
+
+- Before: waiting for headers/body had no deadline; after: at 30 seconds the control is released, with an explicit action to select a photo again or continue with other details.
+- Before: a late result could attach after a draft switch; after: restore/restart cancels ownership before applying the selected draft. An explicit restart clears its owned draft/form under the existing policy; it does not promise deletion of the session attempt. Photo upload and retry never reset the registration key.
+- Network/body timeout copy: “未能確認新照片上載結果。請重新選擇照片重試，或先提交其他資料。” / “The new photo upload could not be confirmed. Select the photo again to retry, or continue with your other details.” Local image processing timeout is labelled separately. Do not claim that a server object was deleted or never stored.
+- Upload retry is explicit and is a new photo upload; the upload endpoint has no idempotency key. An unconfirmed request can leave an unclaimed private object. Only a confirmed `{id, token}` may be attached to an intake; no registration is submitted as part of photo recovery.
+
+Sources: actual `resizePhoto`/`uploadPhoto`/`handleSavedDraft` paths and `app/api/intake-photo/route.ts`; checks in `scripts/intake-photo-browser-check.mjs` and `scripts/photo-upload-stage-check.mjs`. The Chrome fixture renders the actual React form with an isolated locale provider and synthetic pixels; it is not full Next/Linux or production acceptance. PR15 and production are unchanged by this local candidate.

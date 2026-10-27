@@ -22,7 +22,7 @@ function fixture(kind, replies) {
     busyRef: { current: false }, pendingDraft: null, photoUploading: false, step: 3,
     formSections: [{}, {}, {}], pendingSubmission: false, saveDraft: true,
     attemptRef: { current: null }, websiteRef: { current: { value: '' } },
-    draftCompleteRef: { current: false }, submissionAbortRef: { current: null },
+    draftCompleteRef: { current: false }, submissionAbortRef: { current: null }, photoAbortRef: { current: null },
     titleRef: { current: null }, errorRef: { current: null },
     validate: () => true, allFields: () => [{ name: 'fullName' }], validateIntakeFields: () => ({}),
     attemptKey: value => 'attempt.' + value,
