@@ -329,7 +329,9 @@ export default function IntakeForm({ kind }: { kind: IntakeKind }) {
       // Do not classify an interrupted 4xx body as a confirmed rejection.
       controller.signal.throwIfAborted();
       const result = (parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {}) as ApiResult;
-      if (!response.ok || !result.reference) {
+      // HTTP success alone does not confirm a registration. Keep the exact
+      // pending envelope if a proxy/transport returns a malformed receipt.
+      if (!response.ok || typeof result.reference !== 'string' || !result.reference.trim()) {
         confirmedFailure = response.status >= 400 && response.status < 500 && ![408,425].includes(response.status);
         if (result.fields && typeof result.fields === 'object' && !Array.isArray(result.fields)) {
           const knownFields = new Set([...allFields(kind).map(field => field.name), 'consent', 'photo', 'candidateIds']);
