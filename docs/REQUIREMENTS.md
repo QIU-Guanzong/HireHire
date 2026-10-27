@@ -58,11 +58,11 @@ The private PDF no-reader compatibility fallback retains an absolute 60-second l
 - `scripts/node-data-backup.mjs` provides the existing stopped-writer backup/restore workflow. Release acceptance needs a consistent SQLite image, private photos, hashes and offline restored readback. A backup on the same disk is not off-host disaster recovery.
 - Never include credentials, browser sessions, real applicant fixtures, databases or private photos in source/test handoffs. Full/private PDF acceptance uses synthetic data only.
 
-## This audit: actual evidence and remaining work
+## Initial local audit: actual evidence and remaining work
 
 The local patch fixes one demonstrated defect: before the patch, HTTP 200 `{reference:{}}` entered the success branch and cleared the draft/attempt; after the patch it remains unconfirmed. There are no schema, permission, dependency, price or wording changes in that patch.
 
-Evidence under ignored `work/design-contract-audit-20261027/` is separate from source:
+The initial handler-only audit, frozen as `ba159453`, has the following evidence under ignored `work/design-contract-audit-20261027/`, separate from source. Subsequent browser/build follow-up is recorded in its own dated receipt; the initial counts below are not substitutes for that evidence:
 
 - `intake-response-before.json`: 3 assertions reproduce the original defect.
 - `intake-response-after.json`: 146 assertions execute the actual extracted submit handler with deterministic in-memory adapters. Both kinds, malformed receipts, same-envelope retry, valid 200/201, rejection/uncertainty policy and rapid clicks are covered. This is not a React render or browser test.
