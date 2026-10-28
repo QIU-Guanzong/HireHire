@@ -4,6 +4,18 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import { mkdir, writeFile } from 'node:fs/promises';
 const option = name => process.argv.find(a => a.startsWith(`--${name}=`))?.slice(name.length + 3);
+function upstreamTarget(requestUrl, origin) {
+  try {
+    const target = new URL(requestUrl, origin);
+    return target.origin === origin.origin && !target.username && !target.password ? target : null;
+  } catch { return null; }
+}
+if (process.argv.includes('--check-upstream-target')) {
+  const origin = new URL('http://127.0.0.1:18438');
+  for (const input of ['/jobseeker', '/_next/static/a.css?v=1']) assert.equal(upstreamTarget(input, origin)?.origin, origin.origin);
+  for (const input of ['//example.invalid/probe', 'http://example.invalid/probe', '///example.invalid/probe', 'http://127.0.0.1:18439/probe', 'https://127.0.0.1:18438/probe', 'http://user:secret@127.0.0.1:18438/probe', 'http://[']) assert.equal(upstreamTarget(input, origin), null);
+  console.log(JSON.stringify({ passed: true, checks: 9, networkUsed: false })); process.exit(0);
+}
 const upstream = new URL(process.argv[2] || 'http://127.0.0.1:18438');
 assert(upstream.protocol === 'http:' && upstream.hostname === '127.0.0.1' && upstream.port, 'Isolated loopback only');
 
@@ -34,7 +46,9 @@ const receiver = http.createServer(async (req, res) => {
     res.end(JSON.stringify({ reference: scenario.receipts.get(body.idempotencyKey) })); return;
   }
   if (!['GET', 'HEAD'].includes(req.method)) { unexpected.push(req.method + ' ' + url.pathname); res.writeHead(405); res.end(); return; }
-  const forwarded = http.request(new URL(req.url, upstream), { method: req.method, headers: { ...req.headers, host: upstream.host } }, reply => { res.writeHead(reply.statusCode, reply.headers); reply.pipe(res); });
+  const target = upstreamTarget(req.url, upstream);
+  if (!target) { unexpected.push('invalid upstream target'); res.writeHead(400); res.end(); return; }
+  const forwarded = http.request(target, { method: req.method, headers: { ...req.headers, host: upstream.host } }, reply => { res.writeHead(reply.statusCode, reply.headers); reply.pipe(res); });
   forwarded.on('error', () => { res.writeHead(502); res.end(); }); req.pipe(forwarded);
 });
 receiver.on('connection', socket => { sockets.add(socket); socket.on('close', () => sockets.delete(socket)); });

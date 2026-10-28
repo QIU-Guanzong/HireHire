@@ -95,3 +95,5 @@ Reproduction: actual React/Chrome header/body stalls, 22 baseline assertions; a 
 - Exact-source Linux validation remains pending. The latest read-only `/data` check found 6,638,690,304 bytes free against the unchanged 8,589,934,592-byte full-build gate; shortage 1,951,244,288 bytes. Cache cleanup has not been approved or performed. This observation is time-specific, not a release reservation or permission to start a server task.
 
 The new harness proxy initially allowed a network-path URL to change its upstream target. Independent offline review reproduced that test-isolation defect before publication. The proxy now rejects a different origin or embedded credentials before opening a request; nine offline positive/negative cases cover the boundary. The built-page suite was rerun after this guard. No application code or upload API changed.
+
+The same loopback target and userinfo guard also applies to `intake-receipt-browser-check.mjs`; the Linux acceptance runner uses both intercepting receivers. Each receiver must reject absolute/network-path targets outside its configured upstream before opening an HTTP request.
