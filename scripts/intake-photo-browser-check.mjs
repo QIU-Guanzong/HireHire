@@ -6,13 +6,27 @@ import { readFile, mkdir, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 const option = name => process.argv.find(a => a.startsWith(`--${name}=`))?.slice(name.length + 3);
+function upstreamTarget(requestUrl, origin) {
+  try {
+    const target = new URL(requestUrl, origin);
+    return target.origin === origin.origin && !target.username && !target.password ? target : null;
+  } catch { return null; }
+}
+if (process.argv.includes('--check-upstream-target')) {
+  const origin = new URL('http://127.0.0.1:18438');
+  for (const input of ['/jobseeker', '/_next/static/a.css?v=1']) assert.equal(upstreamTarget(input, origin)?.origin, origin.origin);
+  for (const input of ['//example.invalid/probe', 'http://example.invalid/probe', '///example.invalid/probe', 'http://127.0.0.1:18439/probe', 'https://127.0.0.1:18438/probe', 'http://user:secret@127.0.0.1:18438/probe', 'http://[']) assert.equal(upstreamTarget(input, origin), null);
+  console.log(JSON.stringify({ passed: true, checks: 9, networkUsed: false })); process.exit(0);
+}
 const root = path.resolve(option('source') || fileURLToPath(new URL('..', import.meta.url)));
-const { build } = await import(option('esbuild') || 'esbuild');
+const upstream = option('upstream') ? new URL(option('upstream')) : null;
+if (upstream) assert(upstream.protocol === 'http:' && upstream.hostname === '127.0.0.1' && upstream.port, 'Isolated loopback only');
+const { build } = upstream ? {} : await import(option('esbuild') || 'esbuild');
 const { chromium } = await import(option('playwright') || 'playwright');
 const output = path.resolve(option('output') || path.join(root, 'work/photo-upload-recovery'));
 const baseline = process.argv.includes('--expect-bug'); await mkdir(output, { recursive: true });
 const component = path.join(root, 'components/intake-form.tsx');
-const built = await build({ stdin: { contents: `import React from 'react';import {createRoot} from 'react-dom/client';import {flushSync} from 'react-dom';import IntakeForm from ${JSON.stringify(component)};let app;window.mount=()=>{app=createRoot(document.getElementById('app'));flushSync(()=>app.render(<IntakeForm kind="jobseeker"/>));};window.unmount=()=>flushSync(()=>app.unmount());window.mount();`, loader: 'tsx', resolveDir: root }, bundle: true, write: false, format: 'iife', jsx: 'automatic', define: { 'process.env.NODE_ENV': '"development"' }, nodePaths: [path.join(root, 'node_modules')], plugins: [{ name: 'isolated-locale', setup(builder) { builder.onResolve({ filter: /^\.\/locale-provider$/ }, () => ({ path: 'locale', namespace: 'fixture' })); builder.onLoad({ filter: /.*/, namespace: 'fixture' }, () => ({ contents: `export const useLocale=()=>({locale:new URLSearchParams(location.search).get('lang')||'zh-Hant'});`, loader: 'js' })); } }], tsconfig: path.join(root, 'tsconfig.json'), logLevel: 'silent' });
+const built = upstream ? null : await build({ stdin: { contents: `import React from 'react';import {createRoot} from 'react-dom/client';import {flushSync} from 'react-dom';import IntakeForm from ${JSON.stringify(component)};let app;window.mount=()=>{app=createRoot(document.getElementById('app'));flushSync(()=>app.render(<IntakeForm kind="jobseeker"/>));};window.unmount=()=>flushSync(()=>app.unmount());window.mount();`, loader: 'tsx', resolveDir: root }, bundle: true, write: false, format: 'iife', jsx: 'automatic', define: { 'process.env.NODE_ENV': '"development"' }, nodePaths: [path.join(root, 'node_modules')], plugins: [{ name: 'isolated-locale', setup(builder) { builder.onResolve({ filter: /^\.\/locale-provider$/ }, () => ({ path: 'locale', namespace: 'fixture' })); builder.onLoad({ filter: /.*/, namespace: 'fixture' }, () => ({ contents: `export const useLocale=()=>({locale:new URLSearchParams(location.search).get('lang')||'zh-Hant'});`, loader: 'js' })); } }], tsconfig: path.join(root, 'tsconfig.json'), logLevel: 'silent' });
 const oldPhoto = { id: '11111111-1111-4111-8111-111111111111', token: '22222222-2222-4222-8222-222222222222' };
 const newPhoto = { id: '33333333-3333-4333-8333-333333333333', token: '44444444-4444-4444-8444-444444444444' };
 const checks = [], errors = [], unexpected = [], sockets = new Set(); let state, browser, failure;
@@ -33,6 +47,12 @@ const server = http.createServer(async (req, res) => {
   }
   if (req.method === 'POST' && req.url === '/api/intake') { state.intakes++; res.writeHead(503); res.end('{}'); return; }
   if (req.method !== 'GET') { unexpected.push(req.method); res.writeHead(405); res.end(); return; }
+  if (upstream) {
+    const target = upstreamTarget(req.url, upstream);
+    if (!target) { unexpected.push('invalid upstream target'); res.writeHead(400); res.end(); return; }
+    const forwarded = http.request(target, { method: req.method, headers: { ...req.headers, host: upstream.host } }, reply => { res.writeHead(reply.statusCode, reply.headers); reply.pipe(res); });
+    forwarded.on('error', () => { res.writeHead(502); res.end(); }); req.pipe(forwarded); return;
+  }
   if (req.url === '/component.js') { res.writeHead(200, { 'Content-Type': 'text/javascript' }); res.end(built.outputFiles[0].contents); return; }
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }); res.end('<!doctype html><html><meta charset="utf-8"><title>Photo upload synthetic fixture</title><div id="app"></div><script src="/component.js"></script></html>');
 });
@@ -48,13 +68,16 @@ try {
     const label = text => `${mode}/${lang}: ${text}`;
     const context = await browser.newContext({ viewport: { width: lang === 'en' ? 1440 : 360, height: 900 }, reducedMotion: 'reduce' });
     await context.route('**/*', route => new URL(route.request().url()).origin === origin ? route.continue() : (unexpected.push('external'), route.abort()));
+    if (upstream) await context.addCookies([{ name: 'jiahe_locale', value: lang, url: origin }]);
     const page = await context.newPage(); page.on('pageerror', e => errors.push(e.message));
-    await page.goto(origin + '/?lang=' + lang);
-    await page.evaluate(({ draftKey, attemptKey, oldPhoto }) => {
-      window.unmount();
+    await page.goto(origin + (upstream ? '/jobseeker' : '/?lang=' + lang));
+    if (upstream) check(await page.evaluate(() => [...document.styleSheets].some(sheet => sheet.href?.includes('/_next/static/'))), label('Built Next page loads production CSS'));
+    await page.evaluate(({ draftKey, attemptKey, oldPhoto, fullApp }) => {
+      if (!fullApp) window.unmount();
       localStorage.setItem(draftKey, JSON.stringify({ data: { fullName: '合成照片 原文 ONLY', phone: '+852 00000005' }, step: 0, savedAt: new Date().toISOString(), photo: oldPhoto, attempt: { key: 'synthetic-existing-attempt-key', fingerprint: 'existing-fingerprint' } }));
-      sessionStorage.setItem(attemptKey, JSON.stringify({ key: 'synthetic-existing-attempt-key', fingerprint: 'existing-fingerprint' })); window.mount();
-    }, { draftKey, attemptKey, oldPhoto });
+      sessionStorage.setItem(attemptKey, JSON.stringify({ key: 'synthetic-existing-attempt-key', fingerprint: 'existing-fingerprint' })); if (!fullApp) window.mount();
+    }, { draftKey, attemptKey, oldPhoto, fullApp: Boolean(upstream) });
+    if (upstream) await page.reload();
     const switching = ['restart', 'restore'].includes(mode);
     if (!switching) await page.locator('.draft-actions .primary').click();
     const initial = await page.evaluate(key => sessionStorage.getItem(key), attemptKey);
@@ -97,7 +120,8 @@ try {
       await context.close(); continue;
     }
     if (mode === 'cancel') {
-      await page.evaluate(() => { window.unmount(); window.mount(); });
+      if (upstream) { await page.goto(origin + '/services'); await page.goto(origin + '/jobseeker'); }
+      else await page.evaluate(() => { window.unmount(); window.mount(); });
       await poll(() => state.held.destroyed);
       await page.locator('.draft-actions .primary').click();
       await poll(async () => await page.locator('#field-photo').isEnabled());
@@ -118,7 +142,7 @@ try {
         check(JSON.stringify(stored) === JSON.stringify(oldPhoto), label('Previous photo claim preserved on failure/cancellation'));
         check(await page.evaluate(key => sessionStorage.getItem(key), attemptKey) === initial, label('Registration attempt identity unchanged'));
         check(state.uploads.length === (processing ? 0 : 1), label('No automatic upload retry'));
-        check(await page.evaluate(() => window.photoUrls.created.every(u => window.photoUrls.revoked.includes(u))), label('Temporary source object URLs released after failed/cancelled processing'));
+        if (!(upstream && mode === 'cancel')) check(await page.evaluate(() => window.photoUrls.created.every(u => window.photoUrls.revoked.includes(u))), label('Temporary source object URLs released after failed/cancelled processing'));
         await page.locator('#field-photo').setInputFiles(file);
       }
       await poll(async () => await page.locator('#field-photo').isEnabled() && await page.locator('.photo-selected img').count() === 1);
@@ -136,5 +160,5 @@ try {
   check(errors.length === 0, 'No uncaught browser errors'); check(unexpected.length === 0, 'Only loopback traffic');
 } catch (error) { failure = error; }
 finally { await browser?.close(); for (const socket of sockets) socket.destroy(); await new Promise(resolve => server.close(resolve)); }
-const report = { passed: !failure, baseline, draftSwitchBugReproduced: process.argv.includes('--expect-draft-switch-bug') && !failure, checks: checks.length, assertions: checks, sourceSha256: createHash('sha256').update(await readFile(component)).digest('hex'), syntheticOnly: true, scope: 'actual React form in Chrome; isolated locale; no Next full-app or backend acceptance', serverClosed: !server.listening, errors, failure: failure?.message };
+const report = { passed: !failure, baseline, draftSwitchBugReproduced: process.argv.includes('--expect-draft-switch-bug') && !failure, checks: checks.length, assertions: checks, sourceSha256: createHash('sha256').update(await readFile(component)).digest('hex'), syntheticOnly: true, scope: upstream ? 'built Next jobseeker page and production CSS; photo POST intercepted by synthetic loopback receiver; not real upload API or Linux acceptance' : 'actual React form in Chrome; isolated locale; no Next full-app or backend acceptance', serverClosed: !server.listening, errors, failure: failure?.message };
 await writeFile(path.join(output, 'report.json'), JSON.stringify(report, null, 2) + '\n'); console.log(JSON.stringify({ ...report, assertions: undefined })); if (failure) process.exitCode = 1;

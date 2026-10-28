@@ -67,3 +67,9 @@ The 2026-10-27 photo audit reproduced a stalled upload that kept the picker and 
 - Upload retry is explicit and is a new photo upload; the upload endpoint has no idempotency key. An unconfirmed request can leave an unclaimed private object. Only a confirmed `{id, token}` may be attached to an intake; no registration is submitted as part of photo recovery.
 
 Sources: actual `resizePhoto`/`uploadPhoto`/`handleSavedDraft` paths and `app/api/intake-photo/route.ts`; checks in `scripts/intake-photo-browser-check.mjs` and `scripts/photo-upload-stage-check.mjs`. The Chrome fixture renders the actual React form with an isolated locale provider and synthetic pixels; it is not full Next/Linux or production acceptance. This independently reviewed photo correction is appended to PR15. Production is unchanged; the combined head requires its own Linux validation before release.
+
+### Built-page photo recovery validation (2026-10-28)
+
+The frozen PR15 application `31a851f6` was built and served locally through the native Node entry with registration writes and management disabled. The photo recovery harness now accepts a loopback `--upstream` to render the real `/jobseeker` page, locale provider and production CSS. Its synthetic receiver handles photo POSTs; this verifies UI recovery without claiming acceptance of the real upload API. Navigation cancellation replaces the fixture-only unmount in this mode; it is not proof of every client-route lifecycle.
+
+The 22 bilingual mobile/desktop scenarios passed 264 assertions. Local application shutdown returned 0, both listeners closed and six isolated database tables remained empty. This is fresh macOS full-page evidence for that application source, not Linux or production evidence. No new application defect was reproduced in this batch; only the verification harness and documentation changed.
