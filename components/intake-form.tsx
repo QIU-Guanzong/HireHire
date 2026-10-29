@@ -5,6 +5,7 @@ import { ArrowLeft, ArrowRight, Check, CheckCircle2, ChevronRight } from 'lucide
 import { allFields, isFieldVisible, kindLabel, parseWorkExperiences, sections, services, type Field, type IntakeData, type IntakeKind } from '@/lib/fields';
 import { formatWorkExperience, type CandidatePublic, type WorkExperience } from '@/lib/platform-types';
 import { useLocale } from './locale-provider';
+import { photoUploadStage } from '@/lib/photo-upload';
 import { intakeResponseError, t, type Locale } from '@/lib/i18n';
 
 type Attempt = { key: string; fingerprint: string };
@@ -15,6 +16,7 @@ const draftKey = (kind: IntakeKind) => `jiahe.intake.${kind}.v1`;
 const attemptKey = (kind: IntakeKind) => `jiahe.attempt.${kind}.v1`;
 const draftConflictNote = '另一頁已更新草稿。此頁資料仍保留，但不會覆寫已儲存草稿；如提交結果未確認，請留在此頁重試確認。';
 const draftLockNote = '此瀏覽器無法安全鎖定草稿，本頁只保留輸入，不會儲存或刪除草稿。請留在此頁確認提交結果。';
+const photoUnconfirmedNote = '未能確認新照片上載結果。請重新選擇照片重試，或先提交其他資料。';
 const draftReadNote = '未能讀取已儲存草稿，請重試；本頁輸入仍保留，不會覆寫已儲存草稿。';
 const valueText = (value: IntakeData[string] | undefined) => Array.isArray(value) ? value.join('、') : typeof value === 'string' ? value : '';
 function queryPrefill(kind: IntakeKind, search: string): IntakeData {
@@ -115,18 +117,18 @@ export function IntakeDataFields({ fields, data, errors = {}, disabled = false, 
 }
 
 const queryCandidateIds = (search: string) => [...new Set((new URLSearchParams(search).get('candidates') || '').split(',').map(id=>id.trim().toLowerCase()).filter(id=>/^[a-f\d-]{36}$/.test(id)))];
-async function resizePhoto(file: File): Promise<Blob> {
+async function resizePhoto(file: File, signal: AbortSignal): Promise<Blob> {
   if (!['image/jpeg','image/png','image/webp'].includes(file.type) || file.size > 8*1024*1024) throw new Error('請選擇8MB以內的 JPG、PNG 或 WebP 照片。');
   const sourceUrl = URL.createObjectURL(file), picture = new Image();
   try {
-    picture.src = sourceUrl; await picture.decode();
+    picture.src = sourceUrl; await photoUploadStage(() => picture.decode(), signal);
     if (!picture.naturalWidth || !picture.naturalHeight) throw new Error('未能讀取照片。');
     const ratio = Math.min(1,800/Math.max(picture.naturalWidth,picture.naturalHeight));
     const canvas = document.createElement('canvas'); canvas.width = Math.max(1,Math.round(picture.naturalWidth*ratio)); canvas.height = Math.max(1,Math.round(picture.naturalHeight*ratio));
     const context = canvas.getContext('2d'); if (!context) throw new Error('此瀏覽器未能處理照片，請更換瀏覽器後重試。');
     context.fillStyle='#fff';context.fillRect(0,0,canvas.width,canvas.height);context.drawImage(picture,0,0,canvas.width,canvas.height);
-    return await new Promise<Blob>((resolve,reject)=>canvas.toBlob(blob=>blob?resolve(blob):reject(new Error('未能處理照片，請重試。')),'image/jpeg',.85));
-  } finally { URL.revokeObjectURL(sourceUrl); }
+    return await photoUploadStage(() => new Promise<Blob>((resolve,reject)=>canvas.toBlob(blob=>blob?resolve(blob):reject(new Error('未能處理照片，請重試。')),'image/jpeg',.85)), signal);
+  } finally { picture.src = ''; URL.revokeObjectURL(sourceUrl); }
 }
 
 export default function IntakeForm({ kind }: { kind: IntakeKind }) {
@@ -237,15 +239,47 @@ export default function IntakeForm({ kind }: { kind: IntakeKind }) {
     fetch(`/api/candidates?${params}`,{signal:controller.signal,cache:'no-store'}).then(async response=>{if(!response.ok) throw new Error('未能讀取已選人選，請重試。');return response.json() as Promise<{candidates:CandidatePublic[]}>;}).then(result=>{if(!controller.signal.aborted){setCandidates(result.candidates);if(candidateIds.some(id=>!result.candidates.some(person=>person.id===id)))setCandidateError('部分人選目前未能選擇，請移除或重新選擇。');}}).catch(caught=>{if(!controller.signal.aborted){setCandidates([]);setCandidateError(caught instanceof Error?caught.message:'未能讀取人選。');}}).finally(()=>{if(!controller.signal.aborted)setCandidateLoading(false);});
     return ()=>controller.abort();
   },[kind,candidateIds,candidateReload]);
-  useEffect(()=>()=>{submissionAbortRef.current?.abort();photoAbortRef.current?.abort();if(photoPreviewRef.current)URL.revokeObjectURL(photoPreviewRef.current);},[]);
+  useEffect(()=>()=>{submissionAbortRef.current?.abort();const upload=photoAbortRef.current;photoAbortRef.current=null;upload?.abort();if(photoPreviewRef.current)URL.revokeObjectURL(photoPreviewRef.current);},[]);
   const replacePhotoPreview=(url:string)=>{if(photoPreviewRef.current)URL.revokeObjectURL(photoPreviewRef.current);photoPreviewRef.current=url;setPhotoPreview(url);};
   const clearPhoto=()=>{setPhoto(null);replacePhotoPreview('');setPhotoError('');setErrors(current=>{const next={...current};delete next.photo;return next;});};
-  const uploadPhoto=async(event:ChangeEvent<HTMLInputElement>)=>{
-    const file=event.currentTarget.files?.[0];event.currentTarget.value='';if(!file||locked||photoUploading)return;
-    const controller=new AbortController();photoAbortRef.current?.abort();photoAbortRef.current=controller;setPhotoUploading(true);setPhotoError('');
-    try {const blob=await resizePhoto(file);if(controller.signal.aborted)return;const response=await fetch('/api/intake-photo',{method:'POST',headers:{'Content-Type':'image/jpeg'},body:blob,signal:controller.signal});const body=await response.json().catch(()=>({})) as Partial<PhotoAttachment>&{error?:string};if(!response.ok||!body.id||!body.token)throw new Error(body.error||'照片上載未完成，請重試。');setPhoto({id:body.id,token:body.token});replacePhotoPreview(URL.createObjectURL(blob));setErrors(current=>{const next={...current};delete next.photo;return next;});}
-    catch(caught){if(!controller.signal.aborted)setPhotoError(caught instanceof Error?caught.message:'未能上載照片，請重試。');}
-    finally{if(!controller.signal.aborted)setPhotoUploading(false);}
+  const uploadPhoto = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.currentTarget.files?.[0]; event.currentTarget.value = '';
+    // The ref also blocks same-turn events before React disables the input.
+    if (!file || locked || photoAbortRef.current) return;
+    const controller = new AbortController(); photoAbortRef.current = controller;
+    setPhotoUploading(true); setPhotoError('');
+    let timedOut = false, requestStarted = false;
+    const deadline = setTimeout(() => { timedOut = true; controller.abort(); }, 30_000);
+    try {
+      const blob = await resizePhoto(file, controller.signal);
+      controller.signal.throwIfAborted();
+      requestStarted = true;
+      const response = await photoUploadStage(() => fetch('/api/intake-photo', {
+        method: 'POST', headers: { 'Content-Type': 'image/jpeg' }, body: blob, signal: controller.signal,
+      }), controller.signal);
+      const parsed: unknown = await photoUploadStage(() => response.json(), controller.signal).catch(() => null);
+      controller.signal.throwIfAborted();
+      const body = parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
+      if (!response.ok) throw new Error(intakeResponseError(body.error, photoUnconfirmedNote));
+      // Match the claim format accepted by validateIntake, never persist a
+      // truthy object/array or an unconfirmed upload into a registration draft.
+      if (typeof body.id !== 'string' || !/^[a-f\d-]{36}$/.test(body.id) ||
+          typeof body.token !== 'string' || !/^[a-f\d-]{36}$/.test(body.token)) throw new Error(photoUnconfirmedNote);
+      if (photoAbortRef.current !== controller) return;
+      setPhoto({ id: body.id, token: body.token }); replacePhotoPreview(URL.createObjectURL(blob));
+      setErrors(current => { const next = { ...current }; delete next.photo; return next; });
+    } catch (caught) {
+      if (photoAbortRef.current === controller && (!controller.signal.aborted || timedOut)) {
+        const message = caught instanceof Error ? caught.message : '';
+        const localErrors = ['請選擇8MB以內的 JPG、PNG 或 WebP 照片。', '未能讀取照片。', '此瀏覽器未能處理照片，請更換瀏覽器後重試。', '未能處理照片，請重試。'];
+        setPhotoError(timedOut ? requestStarted ? photoUnconfirmedNote : '照片處理逾時。請重新選擇照片，或先提交其他資料。' : requestStarted ? intakeResponseError(message, photoUnconfirmedNote) : localErrors.includes(message) ? message : '未能處理照片，請重試。');
+      }
+    } finally {
+      clearTimeout(deadline);
+      // Unmount clears ownership before aborting; late completion must not
+      // update a replacement form or reset another upload's busy state.
+      if (photoAbortRef.current === controller) { photoAbortRef.current = null; setPhotoUploading(false); }
+    }
   };
 
   const change = (name: string, value: IntakeData[string]) => {
@@ -277,7 +311,7 @@ export default function IntakeForm({ kind }: { kind: IntakeKind }) {
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
-    if (busyRef.current || pendingDraft?.pending || photoUploading) return;
+    if (busyRef.current || pendingDraft?.pending || photoUploading || photoAbortRef.current) return;
     if (step < formSections.length) {
       if (validate(formSections[step].fields)) goTo(reviewReached ? formSections.length : step + 1);
       return;
@@ -329,7 +363,9 @@ export default function IntakeForm({ kind }: { kind: IntakeKind }) {
       // Do not classify an interrupted 4xx body as a confirmed rejection.
       controller.signal.throwIfAborted();
       const result = (parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {}) as ApiResult;
-      if (!response.ok || !result.reference) {
+      // HTTP success alone does not confirm a registration. Keep the exact
+      // pending envelope if a proxy/transport returns a malformed receipt.
+      if (!response.ok || typeof result.reference !== 'string' || !result.reference.trim()) {
         confirmedFailure = response.status >= 400 && response.status < 500 && ![408,425].includes(response.status);
         if (result.fields && typeof result.fields === 'object' && !Array.isArray(result.fields)) {
           const knownFields = new Set([...allFields(kind).map(field => field.name), 'consent', 'photo', 'candidateIds']);
@@ -366,6 +402,9 @@ export default function IntakeForm({ kind }: { kind: IntakeKind }) {
 
   const handleSavedDraft = async (restart: boolean) => {
     if (busyRef.current || pendingSubmission || !pendingDraft || (restart && pendingDraft.pending)) return;
+    // A draft switch supersedes any photo selected in the abandoned form.
+    const upload = photoAbortRef.current; photoAbortRef.current = null; upload?.abort();
+    setPhotoUploading(false); setPhotoError('');
     const epoch = draftEpochRef.current;
     busyRef.current = true;
     setDraftUpdating(true);

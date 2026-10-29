@@ -1,5 +1,7 @@
 # 家合僱傭 cloud continuation
 
+> Historical Sites handoff. Runtime and release instructions below describe the older release, not the current deployment target. Follow [AGENTS.md](../AGENTS.md), [GCP handoff](GCP_MIGRATION_HANDOFF.md) and [current requirements](REQUIREMENTS.md) for native Node/GCP work. Do not use the historical Sites publishing step for a new release.
+
 The owner requested dot cloud continuation on 2026-10-13 and selected **https://github.com/QIU-Guanzong/HireHire** as the development repository. This document transfers the already released platform; do not rebuild it from scratch.
 
 ## Verified baseline

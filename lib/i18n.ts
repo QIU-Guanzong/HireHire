@@ -2,6 +2,13 @@ export type Locale = 'zh-Hant' | 'en';
 
 // Only these public intake diagnostics may be displayed from an API response.
 const intakeApiMessages: Record<string, string> = {
+  '照片處理逾時。請重新選擇照片，或先提交其他資料。': 'Photo processing timed out. Select the photo again, or continue with your other details.',
+  '未能確認新照片上載結果。請重新選擇照片重試，或先提交其他資料。': 'The new photo upload could not be confirmed. Select the photo again to retry, or continue with your other details.',
+  '照片上載暫未開放，可先提交其他資料。': 'Photo uploads are not open yet. You can submit your other details.',
+  '請上載JPEG或PNG照片。': 'Upload a JPEG or PNG photo.',
+  '照片不可大於2MB。': 'The photo must be no larger than 2 MB.',
+  '請選擇照片。': 'Select a photo.',
+  '照片長邊不可超過1600像素。': 'The longest side of the photo must not exceed 1600 pixels.',
   '此登記已提交，請重新開始以登記其他資料。': 'This registration has already been submitted. Start a new registration to enter different details.',
   '部分人選已停止公開，請檢查所選人選後再提交。': 'Some selected profiles are no longer public. Check your selection before submitting.',
   '請移除已停止公開的人選，其他資料仍可保留。': 'Remove profiles that are no longer public. You can keep your other details.',
