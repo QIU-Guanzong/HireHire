@@ -41,6 +41,12 @@ npm start
 
 驗證依次執行 TypeScript、`node scripts/platform-check.mjs --unit`、`npm run build`，另以 `npm run check:storage` 驗證私有持久儲存、`scripts/node-http-check.mjs` 驗證真實 Node loopback／Unix 合成流程。PDF 檢查須有 `pdftotext`。`/api/live` 是程序存活，`/api/health` 驗證六表、私有照片目錄和字型就緒；兩者均不回傳私人資料。
 
+### 串行回歸入口
+
+`npm run check:regression` 依次執行登記回執處理、照片處理取消，以及平台 API/PDF 單元檢查（啟用實際管理 API 回應契約驗證）。任何一步失敗即停止；不會略過失敗繼續宣稱通過。使用合成記憶體資料，PDF 檢查仍須有 `pdftotext`，證據保存在各檢查原有的 `work/` 路徑。
+
+此命令不取代 TypeScript、lint、正式 build、儲存／HTTP、瀏覽器或精確版本的 Linux 發布驗收，也不啟動正式服務或提交真實登記。
+
 ## 設計與來源
 
 繁體中文、白底、清楚的欄位與操作。首頁以服務及求職情況搜尋為主，求職登記作獨立入口。搜尋以篩選側欄及履歷摘要並列，詳情、比較和資料頁按工作任務採不同密度。表單按資料類別分步填寫，後台使用可搜尋的資料列表。短 CSS 狀態變化尊重減少動態效果，沒有動畫依賴。
