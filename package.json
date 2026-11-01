@@ -10,6 +10,7 @@
     "dev": "node scripts/node-server.mjs --dev",
     "build": "next build --webpack",
     "start": "node scripts/node-server.mjs",
+    "check:regression": "node scripts/intake-response-check.mjs && node scripts/photo-upload-stage-check.mjs && node scripts/platform-check.mjs --unit --admin-response-contracts",
     "check:storage": "node scripts/node-storage-check.mjs",
     "check:node": "node scripts/node-http-check.mjs",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
