@@ -142,6 +142,23 @@ export function candidateQuery(url: URL) {
   return { where: ` WHERE ${clauses.join(' AND ')}`, bindings, order: orders[sort], page: Number(pageText) };
 }
 export async function publicCandidates(url: URL) {
+  if (url.searchParams.has('selection')) {
+    const params = url.searchParams;
+    if (params.get('selection') !== '1' || params.getAll('selection').length !== 1 ||
+        params.getAll('ids').length !== 1 || [...params.keys()].some(key => !['selection', 'ids'].includes(key))) {
+      throw new ApiError(400, '人選列表無效。');
+    }
+    const filter = candidateQuery(url), pageSize = 30;
+    // One snapshot of the bounded IDs; the same publication/consent predicates
+    // and curated DTO as the paginated search, with no independent count read.
+    const rows = await db().prepare(`${publicationSelect}${filter.where} LIMIT ?`).bind(...filter.bindings, pageSize).all<PublicationRow>();
+    const byId = new Map(rows.results.map(row => [row.id, row]));
+    const candidates = (filter.bindings as string[]).flatMap(id => {
+      const row = byId.get(id);
+      return row ? [publicDto(row)] : [];
+    });
+    return { candidates, total: candidates.length, page: 1, pageSize };
+  }
   const filter = candidateQuery(url), pageSize = 12;
   const [rows, count] = await Promise.all([
     db().prepare(`${publicationSelect}${filter.where} ORDER BY ${filter.order} LIMIT ? OFFSET ?`).bind(...filter.bindings, pageSize, (filter.page - 1) * pageSize).all<PublicationRow>(),
