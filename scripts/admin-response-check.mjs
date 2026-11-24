@@ -14,6 +14,7 @@ const { validAdminResponse: valid } = validators.exports, { adminRequest, AdminA
 const checks = [], check = (ok, label) => { assert(ok, label); checks.push(label); };
 const time = '2026-10-25T00:00:00Z';
 const settings = { phone: '', whatsapp: '', email: '', address: '', hours: '', fees: [{ service: '合成服務', amount: '', unit: '', notes: '' }], updatedAt: time };
+const repairSettings = { ...settings, fees: [], requiresRepair: true };
 const record = { id: 'r1', reference: 'LOCAL-R', kind: 'employer', data: { legacyQuestion: 'preserved', consent: true, services: [] }, status: '新登記', notes: '', createdAt: time, updatedAt: time };
 const candidate = { id: 'c1', intakeId: 'r2', reference: 'LOCAL-C', state: 'draft', consented: false, hasPhoto: false, createdAt: time, updatedAt: time, displayName: '合成人選', nationality: '', candidateType: '', age: '', education: '', currentLocation: '', yearsExperience: '', employmentType: '', availableFrom: '', expectedSalary: '', salaryUnit: '', summary: '', qualifications: '', services: [], languages: [], skills: [], workLocations: [], workExperiences: [] };
 const match = { id: 'm1', employerId: 'r1', jobseekerId: 'r2', employerName: '', employerReference: '', jobseekerName: '', jobseekerReference: '', stage: '待聯絡', notes: '', interviewAt: '', createdAt: time, updatedAt: time };
@@ -22,6 +23,7 @@ const records = { ...pages, records: [record], asOf: time, counts: { all: 1, emp
 const routes = [
   ['/api/admin/session', 'GET', { configured: false, authenticated: false, authorized: false, email: null }],
   ['/api/admin/settings', 'GET', { ...settings, updatedAt: '' }], ['/api/admin/settings', 'PATCH', settings],
+  ['/api/admin/settings', 'GET', repairSettings],
   ['/api/admin/records?kind=employer', 'GET', records], ['/api/admin/records/r1', 'GET', record], ['/api/admin/records/r1', 'PATCH', { record }],
   ['/api/admin/candidates', 'GET', { ...pages, candidates: [candidate] }], ['/api/admin/candidates', 'POST', candidate], ['/api/admin/candidates/c1', 'GET', candidate], ['/api/admin/candidates/c1', 'PATCH', candidate],
   ['/api/admin/matches', 'GET', { ...pages, matches: [match], asOf: time }], ['/api/admin/matches', 'POST', match], ['/api/admin/matches/m1', 'PATCH', match],
@@ -55,6 +57,11 @@ for (const [field, allowed, item, detailUrl, listUrl, listBody, listKey] of [
 }
 for (const [url, method, body, label] of [
   ['/api/admin/settings', 'PATCH', { ...settings, updatedAt: '' }, 'write cannot use initial empty version'],
+  ['/api/admin/settings', 'GET', { ...repairSettings, updatedAt: '' }, 'repair cannot use the missing-row version'],
+  ['/api/admin/settings', 'GET', { ...repairSettings, phone: '00000000' }, 'repair cannot expose a legacy contact'],
+  ['/api/admin/settings', 'GET', { ...settings, requiresRepair: true }, 'repair cannot expose legacy fees'],
+  ['/api/admin/settings', 'GET', { ...repairSettings, requiresRepair: 'true' }, 'repair marker wrong type'],
+  ['/api/admin/settings', 'PATCH', repairSettings, 'repair marker cannot confirm a save'],
   ['/api/admin/settings', 'GET', { ...settings, fees: [null] }, 'null fee'],
   ['/api/admin/settings', 'GET', { ...settings, fees: [{ service: 'x' }] }, 'incomplete fee'],
   ['/api/admin/settings', 'GET', { ...settings, phone: 123 }, 'contact wrong type'],
