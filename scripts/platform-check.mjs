@@ -529,6 +529,51 @@ try {
   const currentSetting=await setting.json(),longSettings={...currentSetting,fees:Array.from({length:20},()=>({service:'項'.repeat(80),amount:'議'.repeat(80),unit:'次'.repeat(80),notes:'說'.repeat(1000)})),expectedUpdatedAt:currentSetting.updatedAt};
   expect(Buffer.byteLength(JSON.stringify(longSettings))>65536,'Valid 20-item Chinese fee table exceeds former settings byte cap.');
   await expectStatus(await call('settings','PATCH',longSettings,undefined,true),200,'Valid long Chinese company settings accepted');
+
+  // Legacy values are synthetic and inserted only into this in-memory DB.
+  // Both a syntax error and a schema error must give public pages their normal
+  // empty state and give a trusted admin the exact version needed to repair.
+  const corruptVersions = [
+    ['{"email":"unverified-canary@example.test",', '2026-01-01T00:00:00.010Z'],
+    [JSON.stringify({ email: 'unverified-canary@example.test', fees: [null] }), '2026-01-01T00:00:00.020Z'],
+  ];
+  for (const [raw, version] of corruptVersions) {
+    sqlite.prepare("UPDATE site_settings SET info_json=?, updated_at=? WHERE id='public'").run(raw, version);
+    const publicRead = await call('siteInfo');
+    await expectStatus(publicRead, 200, 'Malformed site settings return an honest public empty state');
+    expect(publicRead.headers.get('cache-control') === 'no-store', 'Settings response remains uncached');
+    const publicInfo = await publicRead.json();
+    expect(Object.keys(publicInfo).sort().join(',') === 'address,email,fees,hours,phone,updatedAt,whatsapp'
+      && publicInfo.email === '' && publicInfo.phone === '' && publicInfo.whatsapp === ''
+      && publicInfo.address === '' && publicInfo.hours === '' && publicInfo.fees.length === 0,
+      'Public projection omits all legacy values and any repair indicator');
+    await expectStatus(await call('settings'), 401, 'Anonymous callers cannot read private repair status');
+    await expectStatus(await call('settings', 'PATCH', { expectedUpdatedAt: version }), 401, 'Anonymous repair is denied');
+    const adminRead = await call('settings', 'GET', undefined, undefined, true);
+    await expectStatus(adminRead, 200, 'Trusted admin receives a usable repair form');
+    const { requiresRepair, ...editable } = await adminRead.json();
+    expect(requiresRepair === true && editable.updatedAt === version && editable.email === '',
+      'Repair form flags missing data and preserves the exact database version');
+    await expectStatus(await call('settings', 'PATCH', { ...editable, expectedUpdatedAt: '' }, undefined, true), 409, 'Repair cannot overwrite using a stale version');
+    await expectStatus(await call('settings', 'PATCH', { ...editable, fees: [null], expectedUpdatedAt: version }, undefined, true), 400, 'Repair still validates new settings strictly');
+    expect(sqlite.prepare("SELECT info_json FROM site_settings WHERE id='public'").get().info_json === raw,
+      'Public read, unauthorized repair and invalid/stale repair never mutate storage');
+    const repair = await call('settings', 'PATCH', { ...editable, expectedUpdatedAt: version }, undefined, true);
+    await expectStatus(repair, 200, 'Trusted admin can deliberately reset a corrupt row to blank');
+    const repaired = await repair.json();
+    expect(repaired.requiresRepair === undefined && repaired.updatedAt !== version && repaired.fees.length === 0,
+      'Successful repair clears its indicator and advances the real version');
+    await expectStatus(await call('settings', 'PATCH', { ...editable, expectedUpdatedAt: version }, undefined, true), 409, 'Second editor cannot overwrite a finished repair');
+  }
+  const prepareSettings = globalThis.__jiahePlatformEnv.DB.prepare;
+  try {
+    globalThis.__jiahePlatformEnv.DB.prepare = (sql) => {
+      if (sql.includes('FROM site_settings')) throw new Error('synthetic database outage');
+      return prepareSettings(sql);
+    };
+    await expectStatus(await call('siteInfo'), 503, 'Database failure is not misreported as blank settings');
+  } finally { globalThis.__jiahePlatformEnv.DB.prepare = prepareSettings; }
+
   }
   const report={passed:true,checks,adminResponseChecks,pdfDefaultChecks,publicSearchChecks,clientRedactionChecks,focusedOnly:pdfDefaultOnly||publicSearchOnly||clientRedactionOnly,isolatedDatabase:true,fixtureObjects:objects.size,pdfs:clientRedactionOnly?['records-client.pdf','records-full.pdf','matches-default.pdf','matches-empty.pdf','matches-full.pdf']:publicSearchOnly?[]:pdfDefaultOnly?['default-selected.pdf','empty-mode.pdf','explicit-client.pdf','default-filtered.pdf','explicit-full.pdf']:['candidate.pdf','match-client.pdf','match-full.pdf'],testedAt:new Date().toISOString()};
   await writeFile(clientRedactionOnly?'work/client-pdf-redaction/focused-report.json':publicSearchOnly?'work/navigation-search/focused-report.json':pdfDefaultOnly?'work/admin-pdf-default/focused-report.json':'work/platform-check/report.json',JSON.stringify(report,null,2)); console.log(JSON.stringify(report));
