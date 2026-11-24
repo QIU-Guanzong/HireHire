@@ -1,7 +1,13 @@
 import { ApiError, db, handleApi, json, readJson, requireAdmin, requireSameOrigin } from '@/lib/server';
-import { assertVersion, siteInfo, updatedVersion, validateSiteInfo } from '@/lib/platform-server';
+import { assertVersion, readSiteInfo, siteInfo, updatedVersion, validateSiteInfo } from '@/lib/platform-server';
 export const dynamic = 'force-dynamic';
-export async function GET(request: Request) { return handleApi(async () => { requireAdmin(request); return json(await siteInfo()); }); }
+export async function GET(request: Request) {
+  return handleApi(async () => {
+    requireAdmin(request);
+    const { info, requiresRepair } = await readSiteInfo();
+    return json(requiresRepair ? { ...info, requiresRepair: true } : info);
+  });
+}
 export async function PATCH(request: Request) {
   return handleApi(async () => {
     requireAdmin(request); requireSameOrigin(request);
