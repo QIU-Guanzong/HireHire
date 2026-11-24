@@ -47,9 +47,12 @@ export function validAdminResponse(url: string, method: string, value: unknown):
       && (value.email === null || text(value.email)) && (value.name == null || text(value.name));
   }
   if (pathname === '/api/admin/settings' && ['GET', 'PATCH'].includes(method)) {
-    return texts(value, ['phone', 'whatsapp', 'email', 'address', 'hours'])
+    const contacts = ['phone', 'whatsapp', 'email', 'address', 'hours'];
+    return texts(value, contacts)
       && (timestamp(value.updatedAt) || method === 'GET' && value.updatedAt === '')
-      && Array.isArray(value.fees) && value.fees.every(fee => object(fee) && texts(fee, ['service', 'amount', 'unit', 'notes']));
+      && Array.isArray(value.fees) && value.fees.every(fee => object(fee) && texts(fee, ['service', 'amount', 'unit', 'notes']))
+      && (value.requiresRepair === undefined || method === 'GET' && value.requiresRepair === true
+        && timestamp(value.updatedAt) && contacts.every(key => value[key] === '') && value.fees.length === 0);
   }
   if (pathname === '/api/admin/records' && method === 'GET') {
     const kind = new URLSearchParams(query).get('kind');
