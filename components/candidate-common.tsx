@@ -43,18 +43,37 @@ export function useCandidateSelections() {
 export type CandidateSelection = ReturnType<typeof useCandidateSelections>;
 export async function readCandidates(ids: string[], signal: AbortSignal): Promise<CandidatePublic[]> {
   if (!ids.length) return [];
-  const fetched: CandidatePublic[] = [];
-  for (let page = 1; page <= 3; page++) {
-    const query = new URLSearchParams({ ids: ids.join(','), page: String(page) });
+  const error = () => new Error('暫時未能載入人選，請再試一次。');
+  const read = async (group: string[], selection = false) => {
+    const query = new URLSearchParams(selection ? { ids: group.join(','), selection: '1' } : { ids: group.join(','), page: '1' });
     const response = await fetch(`/api/candidates?${query}`, { signal, cache: 'no-store' });
-    if (!response.ok) throw new Error('暫時未能載入人選，請再試一次。');
+    if (!response.ok) throw error();
     const result = await response.json() as CandidateResults;
-    if (!Array.isArray(result.candidates)) throw new Error('暫時未能載入人選，請再試一次。');
-    fetched.push(...result.candidates);
-    if (fetched.length >= result.total || result.candidates.length === 0) break;
-  }
+    signal.throwIfAborted();
+    if (!Array.isArray(result?.candidates) || result.page !== 1 ||
+        !Number.isInteger(result.total) || result.total < result.candidates.length || result.total > group.length ||
+        result.candidates.some(candidate => !candidate || !group.includes(candidate.id)) ||
+        new Set(result.candidates.map(candidate => candidate.id)).size !== result.candidates.length) throw error();
+    return result;
+  };
+  const result = await read(ids, true);
+  let fetched: CandidatePublic[];
+  if ((result.pageSize === 30 || (result.pageSize === 12 && ids.length <= 12)) && result.total === result.candidates.length) {
+    fetched = result.candidates;
+  } else if (result.pageSize === 12) {
+    // An older server ignores selection=1. Never use its moving offsets or
+    // infer missing entries from an incomplete or failed request.
+    const groups = Array.from({ length: Math.ceil(ids.length / 12) }, (_, i) => ids.slice(i * 12, (i + 1) * 12));
+    const batches = await Promise.all(groups.map(async group => {
+      const batch = await read(group);
+      if (batch.pageSize !== 12 || batch.total !== batch.candidates.length) throw error();
+      return batch.candidates;
+    }));
+    fetched = batches.flat();
+  } else throw error();
+  signal.throwIfAborted();
   const byId = new Map(fetched.map(candidate => [candidate.id, candidate]));
-  return ids.flatMap(id => byId.has(id) ? [byId.get(id)!] : []);
+  return ids.flatMap(id => { const candidate = byId.get(id); return candidate ? [candidate] : []; });
 }
 export function candidateSalary(candidate: CandidatePublic) {
   if (candidate.salaryNegotiable) return '可商議';
