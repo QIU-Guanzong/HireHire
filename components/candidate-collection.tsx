@@ -10,7 +10,7 @@ import { t } from '@/lib/i18n';
 type CollectionMode = 'saved' | 'compare';
 export function CandidateCollection({ mode }: { mode: CollectionMode }) {
   const {locale}=useLocale(),tr=(value:string)=>t(locale,value);
-  const selection = useCandidateSelections(), [candidates, setCandidates] = useState<CandidatePublic[]>([]), [loading, setLoading] = useState(true), [error, setError] = useState(''), [retry, setRetry] = useState(0);
+  const selection = useCandidateSelections(), [candidates, setCandidates] = useState<CandidatePublic[]>([]), [resolvedSignature, setResolvedSignature] = useState<string | null>(null), [loading, setLoading] = useState(true), [error, setError] = useState(''), [retry, setRetry] = useState(0);
   const initialized = useRef(false), collectionHeading = useRef<HTMLHeadingElement>(null), focusAfterRemove = useRef(false), ids = mode === 'saved' ? selection.saved : selection.compared, signature = ids.join(',');
   useEffect(() => {
     if (!selection.ready || initialized.current) return;
@@ -29,12 +29,12 @@ export function CandidateCollection({ mode }: { mode: CollectionMode }) {
   useEffect(() => {
     if (!selection.ready) return;
     const controller = new AbortController(); setError('');
-    if (!signature) { setCandidates([]); setLoading(false); return () => controller.abort(); }
+    if (!signature) { setCandidates([]); setResolvedSignature(''); setLoading(false); return () => controller.abort(); }
     setLoading(true);
-    readCandidates(candidateIds(signature), controller.signal).then(data => { setCandidates(data); setLoading(false); }).catch((reason: unknown) => { if (controller.signal.aborted) return; setError(reason instanceof Error ? reason.message : '暫時未能載入人選，請再試一次。'); setLoading(false); });
+    readCandidates(candidateIds(signature), controller.signal).then(data => { if (controller.signal.aborted) return; setCandidates(data); setResolvedSignature(signature); setLoading(false); }).catch(() => { if (controller.signal.aborted) return; setError('暫時未能載入人選，請再試一次。'); setLoading(false); });
     return () => controller.abort();
   }, [signature, selection.ready, retry]);
-  const current = candidates.filter(candidate => ids.includes(candidate.id)), missing = loading || error ? [] : ids.filter(id => !current.some(candidate => candidate.id === id));
+  const current = candidates.filter(candidate => ids.includes(candidate.id)), missing = loading || error || resolvedSignature !== signature ? [] : ids.filter(id => !current.some(candidate => candidate.id === id));
   const writeCollection = (next: string[]) => {
     const persisted = selection.write(mode === 'saved' ? 'saved' : 'compare', next);
     if (mode === 'compare') window.history.replaceState(null, '', `/compare${next.length ? `?ids=${encodeURIComponent(next.join(','))}` : ''}`);
