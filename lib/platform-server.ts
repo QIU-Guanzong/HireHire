@@ -225,9 +225,22 @@ export async function assertMatchKinds(employerId: string, jobseekerId: string) 
 }
 
 export const blankSiteInfo: SiteInfo = { phone: '', whatsapp: '', email: '', address: '', hours: '', fees: [], updatedAt: '' };
-export async function siteInfo(): Promise<SiteInfo> {
+type SiteInfoSnapshot = { info: SiteInfo; requiresRepair: boolean };
+export async function readSiteInfo(): Promise<SiteInfoSnapshot> {
+  // A storage failure is not a missing or malformed document.
   const row = await db().prepare("SELECT info_json, updated_at FROM site_settings WHERE id = 'public'").first<{ info_json: string; updated_at: string }>();
-  return row ? { ...validateSiteInfo(JSON.parse(row.info_json)), updatedAt: row.updated_at } : { ...blankSiteInfo };
+  if (!row) return { info: { ...blankSiteInfo }, requiresRepair: false };
+  try {
+    return { info: { ...validateSiteInfo(JSON.parse(row.info_json)), updatedAt: row.updated_at }, requiresRepair: false };
+  } catch (error) {
+    if (!(error instanceof SyntaxError) && !(error instanceof ApiError && error.status === 400)) throw error;
+    // Publish no values from an untrusted legacy document, but preserve the
+    // real version so an authorized editor can replace the row conditionally.
+    return { info: { ...blankSiteInfo, updatedAt: row.updated_at }, requiresRepair: true };
+  }
+}
+export async function siteInfo(): Promise<SiteInfo> {
+  return (await readSiteInfo()).info;
 }
 export function validateSiteInfo(input: unknown): Omit<SiteInfo, 'updatedAt'> {
   if (!object(input)) throw new ApiError(400, '公司資料格式不正確。');
