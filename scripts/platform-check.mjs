@@ -453,6 +453,30 @@ try {
   const selectedQuery=`/api/candidates?ids=${publicationIds.slice(0,13).join(',')}`;
   const savedPage1=await(await call('candidates','GET',undefined,undefined,false,selectedQuery)).json(),savedPage2=await(await call('candidates','GET',undefined,undefined,false,`${selectedQuery}&page=2`)).json();
   expect(savedPage1.candidates.length===12&&savedPage2.candidates.length===1&&savedPage1.total===13,'Saved selections beyond 12 remain accessible on next page.');
+  const lookup = ids => call('candidates','GET',undefined,undefined,false,`/api/candidates?${new URLSearchParams({ids:ids.join(','),selection:'1'})}`);
+  const candidateIds30 = publicationIds.slice(0,30).reverse();
+  const completeResponse = await lookup(candidateIds30);
+  await expectStatus(completeResponse,200,'Bounded saved lookup accepts thirty IDs');
+  const complete = await completeResponse.json();
+  expect(complete.page === 1 && complete.pageSize === 30 && complete.total === 30 && JSON.stringify(complete.candidates.map(row=>row.id)) === JSON.stringify(candidateIds30),'Bounded saved lookup returns the entire requested set in saved order');
+  const moved = savedPage2.candidates[0].id;
+  sqlite.prepare('UPDATE candidate_publications SET updated_at=? WHERE id=?').run('2099-01-01T00:00:00.000Z',moved);
+  const shiftedTail = await (await call('candidates','GET',undefined,undefined,false,`${selectedQuery}&page=2`)).json();
+  expect(![...savedPage1.candidates,...shiftedTail.candidates].some(row=>row.id===moved),'Synthetic newer profile demonstrates the legacy moving offset');
+  const pausedSelection = savedPage1.candidates[0].id;
+  const consentIndex = publicationIds.findIndex(id=>id!==pausedSelection && id!==moved);
+  const unconsentedId = publicationIds[consentIndex];
+  sqlite.prepare("UPDATE candidate_publications SET state='paused' WHERE id=?").run(pausedSelection);
+  sqlite.prepare("UPDATE intake_records SET data_json=json_set(data_json, '$.publicProfileConsent', json('false')) WHERE id=?").run(paginationIds[consentIndex]);
+  const expected = publicationIds.slice(0,13).filter(id=>id!==pausedSelection && id!==unconsentedId);
+  const current = await (await lookup([...publicationIds.slice(0,13),randomUUID()])).json();
+  expect(current.total === 11 && JSON.stringify(current.candidates.map(row=>row.id)) === JSON.stringify(expected) && current.candidates.some(row=>row.id===moved),'One read keeps the moved profile but omits paused, withdrawn-consent and unknown IDs');
+  expect(current.candidates.every(row=>Object.keys(row).sort().join(',')===Object.keys(dto).sort().join(',')),'Saved lookup uses the same curated fields as the individual public DTO');
+  for (const ids of [[candidateIds30[0],candidateIds30[0]], [...candidateIds30,publicationIds[30]], ['invalid'], []]) {
+    await expectStatus(await lookup(ids),400,'Invalid collection ID request rejected');
+  }
+  await expectStatus(await call('candidates','GET',undefined,undefined,false,'/api/candidates?selection=1'),400,'Bounded lookup cannot list all candidates');
+  await expectStatus(await call('candidates','GET',undefined,undefined,false,`${selectedQuery}&selection=1&page=2`),400,'Bounded lookup cannot combine with search paging');
   for(const id of paginationIds)sqlite.prepare('DELETE FROM intake_records WHERE id = ?').run(id);
   await mkdir('work/platform-check', { recursive: true });
   const objectKey = photoMetadata.object_key, savedPortrait = objects.get(objectKey);
